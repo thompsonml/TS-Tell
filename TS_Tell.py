@@ -65,7 +65,7 @@ from sktime.forecasting.timesfm_forecaster import TimesFMForecaster
 class TS_Tell():
     def __init__(self, 
                  input_ts: pd.Series, 
-                 max_season: int=52
+                 season_length: int=52
                 ):
         """Default constructor of the TS_Tell class
 
@@ -73,7 +73,7 @@ class TS_Tell():
         ----------        
         input_ts : pd.Series, float
             The input time series - Index should be `DatetimeIndex` (see Notes)
-        max_season : int, default 52
+        season_length : int, default 52
             The maximum value of the season / cycle (12 for monthly, 52 for 
             weekly, 4 for quarterly, 7 for daily, 168 for hourly, etc.)
 
@@ -93,7 +93,7 @@ class TS_Tell():
         
         """
         self.input_ts = input_ts
-        self.max_season = max_season
+        self.season_length = season_length
 
         # additional objects
         self.n_obs = len(self.input_ts)
@@ -264,8 +264,8 @@ class TS_Tell():
         skew= self.input_ts.skew()
         kurt= self.input_ts.kurtosis()
         yj_lambda = self.get_yeo_johnson()[1]
-        lb_df = acorr_ljungbox(self.input_ts, lags=self.max_season)
-        lb_pval = lb_df.loc[self.max_season][1:].item()
+        lb_df = acorr_ljungbox(self.input_ts, lags=self.season_length)
+        lb_pval = lb_df.loc[self.season_length][1:].item()
         adf, kpss, pp, d_adf, d_kpss, d_pp = self.get_stationarity_tests()
         metrics = [self.n_obs, n_miss, self._get_data_freq(), max, min, 
                    mean, std, skew, kurt, yj_lambda, lb_pval,
@@ -552,21 +552,20 @@ class TS_Tell():
         df['z'] = (df['y'] - df['y'].mean()) / df['y'].std()
 
         if smoother=="WE":
-            df["smooth_ts"] = WhittakerSmoother(self.max_season, 
+            df["smooth_ts"] = WhittakerSmoother(self.season_length, 
                                                 smooth_order, 
                                                 self.n_obs).smooth(self.input_ts)
             smooth_kind = "Whittaker-Eilters"
         elif smoother=="SG":
             df["smooth_ts"] = savgol_filter(self.input_ts, 
-                                            self.max_season, 
+                                            self.season_length, 
                                             smooth_order)
             smooth_kind = "Savitsky-Golay"
         elif smoother=="HMA":
-            df["smooth_ts"] = self._get_HMA(self.input_ts, int(self.max_season / 2))
+            df["smooth_ts"] = self._get_HMA(self.input_ts, int(self.season_length / 2))
             smooth_kind = "HMA"
         else:
-        #--------------------------------------------------------------------------------
-            raise ValueError("The type of smoother passed must be either " + \
+            raise ValueError("The type of smoother passed must be either "
                     "``WE`` or ``SG`` or ``HMA``")
             
         df["hi_bound"] = df["smooth_ts"] + df["smooth_ts"].std() * extrema_std
@@ -616,7 +615,7 @@ class TS_Tell():
         """
         df = self._get_trend_dataframe()
         lag_dict = {}
-        for i in range(1, self.max_season + 1):
+        for i in range(1, self.season_length + 1):
             ols = sm.OLS.from_formula('y ~ y.shift(' + str(i) + ')', df).fit()
             lag_dict[i] = ols.pvalues[1:].item()
         lag_sig_dict = {key: value for key, value in lag_dict.items() if 
@@ -723,13 +722,13 @@ class TS_Tell():
         
         """
         # Compute periodogram
-        freq_spec, power_spec = periodogram(self.input_ts, self.max_season)        
+        freq_spec, power_spec = periodogram(self.input_ts, self.season_length)        
         spec_df = pd.DataFrame({"freq": freq_spec, "power": power_spec})
         peak = spec_df.query("power.eq(power.max())")["freq"].item()
         spec_top2 = spec_df.sort_values("power", ascending=False)[:2]["freq"]
         
         # Compute Welch's
-        freq_welch, power_welch = welch(self.input_ts, self.max_season)        
+        freq_welch, power_welch = welch(self.input_ts, self.season_length)        
         welch_df = pd.DataFrame({"freq": freq_welch, "power": power_welch})
         peak_welch = welch_df.query("power.eq(power.max())")["freq"].item()
         welch_top2 = welch_df.sort_values("power", ascending=False)[:2]["freq"]
