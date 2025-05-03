@@ -592,7 +592,7 @@ class TS_Tell():
                    "markersize": 1.5, "alpha": 0.3}
         df["hi_bound"].plot(**styling, label=f"Hi Bound + {extrema_std}$\sigma$")
         df["lo_bound"].plot(**styling, label=f"Lo Bound - {extrema_std}$\sigma$")
-        plt.axhline(y=critical_z, color='r', linestyle='--', alpha=0.5)
+        plt.axhline(y=critical_z, color='r', linestyle='--', alpha=0.5, label="Critical Z Value")
         plt.axhline(y=-critical_z, color='r', linestyle='--', alpha=0.5)
         plt.suptitle("Curve Shape and Possible Extrema", fontsize=11)
         plt.title(f"Critical Z: {critical_z}", fontsize=9)
