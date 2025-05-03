@@ -889,8 +889,36 @@ class TS_Tell():
         plt.show()
 
 
-    def get_ts_profile(self):
-        """Get TS Profile
+    def get_profile_trend(self):
+        """Get profile for Trend
+
+        Show all the metrics and graphs to assess Trend
+        """
+        self.get_trend_plot()
+        print()
+        print()
+        self.get_trend_test()
+        print()
+        print()
+
+
+    def get_profile_seasonality(self):
+        """Get profile for Seasonality
+
+        Show all the metrics and graphs to assess Seasonality
+        """
+        self.get_seasonal_autocorr()
+        print()
+        print()
+        self.get_spectral_graphs()
+        print()
+        print()
+        self.get_model_seasonalities()
+        print()
+
+
+    def get_profile_ts(self):
+        """Get Profile TS
 
         Run a logical sequence of TS Tell methods to profile the Time Series
 
