@@ -37,7 +37,6 @@ import statsmodels.api as sm
 from sktime.utils.plotting import plot_series
 from sktime.utils.plotting import plot_correlations
 
-#from sktime.performance_metrics.forecasting import MeanAbsolutePercentageError
 from sktime.performance_metrics.forecasting import mean_absolute_percentage_error
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sktime.forecasting.sarimax import SARIMAX
@@ -97,7 +96,6 @@ class TS_Tell():
         self.max_season = max_season
 
         # additional objects
-        self.metrics = []
         self.n_obs = len(self.input_ts)
 
         # Exceptions
@@ -269,9 +267,9 @@ class TS_Tell():
         lb_df = acorr_ljungbox(self.input_ts, lags=self.max_season)
         lb_pval = lb_df.loc[self.max_season][1:].item()
         adf, kpss, pp, d_adf, d_kpss, d_pp = self.get_stationarity_tests()
-        self.metrics = [self.n_obs, n_miss, self._get_data_freq(), max, min, 
-                        mean, std, skew, kurt, yj_lambda, lb_pval, 
-                        adf, kpss, pp, d_adf, d_kpss, d_pp]
+        metrics = [self.n_obs, n_miss, self._get_data_freq(), max, min, 
+                   mean, std, skew, kurt, yj_lambda, lb_pval,
+                   adf, kpss, pp, d_adf, d_kpss, d_pp]
         if print_messages:
             print("\nN / Freq\n" \
                   "--------\n" \
@@ -303,7 +301,7 @@ class TS_Tell():
                   "------------------\n" \
                   "ADF Test: {:>19.4f}\n" \
                   "KPSS Test: {:>18.4f}\n" \
-                  "PP Test: {:>20.4f}\n".format(*self.metrics)
+                  "PP Test: {:>20.4f}\n".format(*metrics)
                  )
         
         if return_results:
@@ -311,7 +309,7 @@ class TS_Tell():
                           "Mean", "Std Dev", "Skew", "Kurtosis", "YJ Lambda", 
                           "Ljung-Box", "ADF Test", "KPSS Test", "PP Test", 
                           "D ADF Test", "D KPSS Test", "D PP Test"]
-            sample_facts = pd.Series(self.metrics, index=index_vals)
+            sample_facts = pd.Series(metrics, index=index_vals)
             return sample_facts
 
 
