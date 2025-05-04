@@ -54,14 +54,7 @@ from sktime.forecasting.naive import NaiveForecaster
 from sktime.forecasting.fbprophet import Prophet
 from sktime.forecasting.tbats import TBATS
 
-from sktime.forecasting.pykan_forecaster import PyKANForecaster
-from sktime.forecasting.neuralforecast import NeuralForecastLSTM
-from sktime.forecasting.neuralforecast import NeuralForecastRNN
-from sktime.forecasting.timesfm_forecaster import TimesFMForecaster
 
-"""
---------------------------------------------------------------------------------
-"""
 class TS_Tell():
     def __init__(self, 
                  input_ts: pd.Series, 
@@ -101,7 +94,6 @@ class TS_Tell():
         # Exceptions
         if not isinstance(self.input_ts, pd.Series):
             raise TypeError("Expected a Pandas Series, but got a {}".format(
-                #type(series).__name__))
                 type(self.input_ts).__name__))
             
         if not isinstance(self.input_ts.index, pd.DatetimeIndex):
@@ -113,6 +105,7 @@ class TS_Tell():
                     "DatetimeIndex. The conversion of the Index on the "
                     "input time series using `pd.to_datetime()` was "
                     "attempted but failed.")
+                
 
     # PRIVATE methods
     def _get_data_freq(self) -> str:
@@ -136,7 +129,7 @@ class TS_Tell():
         """Private method to get the value for the Hodrick-Prescott Lambda
 
         References
-        -----
+        ----------
         [1] https://www.stata.com/manuals/tstsfilterhp.pdf
             - P. 8, first paragraph
         """
@@ -151,13 +144,29 @@ class TS_Tell():
         return hp_lambda
 
     
+    def _get_WMA(self, s, period):
+        """Private method to get the Weighted Moving Average
+
+        """
+        return s.rolling(period).apply(lambda x: 
+                        ((np.arange(period)+1)*x).sum() / 
+                                      (np.arange(period)+1).sum(), raw=True)
+
+    
+    def _get_HMA(self, s, period):
+       """Private method to get Hull's Moving Average
+
+        """
+        return self._get_WMA(self._get_WMA(s, period // 2
+                ).multiply(2).sub(self._get_WMA(s, period)), int(np.sqrt(period)))
+
+    
     # PUBLIC methods
     def get_stationarity_tests(self) -> tuple:
         """Get stationarity tests to examine for presence of a unit root
 
         Notes
         -----
-        
         Augmented Dickey-Fuller (ADF) Test
             Ho: The time series has a unit root (non-stationary)
 
@@ -451,17 +460,7 @@ class TS_Tell():
         plt.tight_layout()
         plt.show()
 
-    #--------------------------------------------------------------------------------
-    def _get_WMA(self, s, period):
-       return s.rolling(period).apply(lambda x: 
-                        ((np.arange(period)+1)*x).sum() / 
-                                      (np.arange(period)+1).sum(), raw=True)
-
-    def _get_HMA(self, s, period):
-       return self._get_WMA(self._get_WMA(s, period // 2
-                ).multiply(2).sub(self._get_WMA(s, period)), int(np.sqrt(period)))
-
-
+    
     def get_smoothed_imputation(self, 
                                 smoother="WE",
                                 smooth_order=3,
@@ -473,16 +472,7 @@ class TS_Tell():
 
         Use the parameters to create a smoother, imputed series to further
         analyze and/or model.
-        
-        Uses smoothing to examine possible cases of extrema/outliers/anomalies. 
-        Essentially, these smoothers estimate the center of mass of the input 
-        time series, meaning imputation will be affected by where the value 
-        occurs along the curve. Given the temporal nature of time series data, 
-        this is ideal - the probability of the value being imputed should be 
-        influenced by where along the curve it occurs and the values around it.
-
-        
-        
+                
         Parameters
         ----------
         smoother : str {"WE", "SG", "HMA"} default "WE"
@@ -501,7 +491,7 @@ class TS_Tell():
         critical_z : float, default 2.326
             The Z-value denoting the top and bottom % to consider for extrema/
             outliers/anomolies (2.326 is top/bottom 1% - see a Critical Z chart
-            for more values
+            for more values)
         return_results : bool default True
             Whether or not to return the results via a pd.DataFrame
 
@@ -532,6 +522,15 @@ class TS_Tell():
                 - 'SG'
                 - 'HMA'
             ..then a ValueError is raised
+
+        Notes
+        -----
+        Uses smoothing to examine possible cases of extrema/outliers/anomalies. 
+        Essentially, these smoothers estimate the center of mass of the input 
+        time series, meaning imputation will be affected by where the value 
+        occurs along the curve. Given the temporal nature of time series data, 
+        this is ideal - the probability of the value being imputed should be 
+        influenced by where along the curve it occurs and the values around it.
 
         References
         ----------
@@ -587,9 +586,12 @@ class TS_Tell():
         df["smooth_ts"].plot(c='g', label=smooth_kind)
         styling = {"color": "peru", "ls": '--', "marker": 'o', 
                    "markersize": 1.5, "alpha": 0.3}
-        df["hi_bound"].plot(**styling, label=f"Hi Bound + {extrema_std}$\sigma$")
-        df["lo_bound"].plot(**styling, label=f"Lo Bound - {extrema_std}$\sigma$")
-        plt.axhline(y=critical_z, color='r', linestyle='--', alpha=0.5, label="Critical Z Value")
+        df["hi_bound"].plot(**styling, 
+                            label=f"Hi Bound + {extrema_std}$\sigma$")
+        df["lo_bound"].plot(**styling, 
+                            label=f"Lo Bound - {extrema_std}$\sigma$")
+        plt.axhline(y=critical_z, color='r', linestyle='--', alpha=0.5, 
+                    label="Critical Z Value")
         plt.axhline(y=-critical_z, color='r', linestyle='--', alpha=0.5)
         plt.suptitle("Curve Shape and Possible Extrema", fontsize=11)
         plt.title(f"Critical Z: {critical_z}", fontsize=9)
@@ -827,6 +829,7 @@ class TS_Tell():
     
     def get_seasonal_autocorr(self) -> None:
         """Get an Autocorrelation plot to examine for possible Seasonality
+        
         """
         plt.figure(figsize=(12, 4))
         plt.title("Visual Examination for Seasonal Component", fontsize=11)
