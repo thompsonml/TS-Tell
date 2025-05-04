@@ -13,10 +13,8 @@ import pandas as pd
 import numpy as np
 from scipy.stats import yeojohnson
 from pandas.plotting import autocorrelation_plot
-
 from scipy.signal import periodogram
 from scipy.signal import welch
-
 from scipy.signal import savgol_filter
 from whittaker_eilers import WhittakerSmoother
 
@@ -27,7 +25,6 @@ import seaborn as sns
 
 # statistics, modeling
 from arch.unitroot import PhillipsPerron
-
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.stattools import kpss
@@ -39,20 +36,15 @@ from sktime.utils.plotting import plot_correlations
 
 from sktime.performance_metrics.forecasting import mean_absolute_percentage_error
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from sktime.forecasting.sarimax import SARIMAX
-
+#from sktime.forecasting.sarimax import SARIMAX
 from sktime.forecasting.arima import AutoARIMA
 from sktime.forecasting.ets import AutoETS
-
 from sktime.forecasting.statsforecast import StatsForecastAutoARIMA
 from sktime.forecasting.statsforecast import StatsForecastAutoCES
 from sktime.forecasting.statsforecast import StatsForecastAutoTheta
 from sktime.forecasting.statsforecast import StatsForecastAutoTBATS
-
 from sktime.forecasting.naive import NaiveForecaster
-
 from sktime.forecasting.fbprophet import Prophet
-from sktime.forecasting.tbats import TBATS
 
 
 class TS_Tell():
@@ -154,7 +146,7 @@ class TS_Tell():
 
     
     def _get_HMA(self, s, period):
-       """Private method to get Hull's Moving Average
+        """Private method to get Hull's Moving Average
 
         """
         return self._get_WMA(self._get_WMA(s, period // 2
