@@ -217,7 +217,7 @@ class TS_Tell():
 
     def get_sample_facts(self, 
                          print_messages: bool=True, 
-                         return_results: bool=True
+                         return_results: bool=False
                             ) -> Optional[pd.Series]:
         """Get basic facts about the sample:
         
@@ -230,7 +230,7 @@ class TS_Tell():
         ----------
         print_messages : bool default True
             Whether or not to print the output messages
-        return_results : bool default True
+        return_results : bool default False
             Whether or not to return a pd.Series of the results
         
         Returns
@@ -244,11 +244,14 @@ class TS_Tell():
             to in order to obtain a new distribution as closely related to a
             Normal distrubtion as possible. Some important values (approximate)
             would be as follows:
-                | Value | Transform |
-                | ----- | --------- |
-                |  0.0  | LN |
+            
+                | ----- | ----------- |
+                | Value |  Transform  |
+                | ----- | ----------- |
+                |  0.0  | LN          |
                 |  0.5  | Square Root |
-                |  1.0  | Normal |
+                |  1.0  | Normal      |
+                | ----- | ----------- |                
 
             Stepping back, the whole reason data are transformed are an attempt
             to remedy due to "ill-behaving" data. 
@@ -467,7 +470,7 @@ class TS_Tell():
                                 std_points=4,
                                 extrema_std=3,
                                 critical_z=2.326,
-                                return_results=True) -> Optional[pd.DataFrame]:
+                                return_results=False) -> Optional[pd.DataFrame]:
         """Get a smoothed, imputed version of the input Time Series
 
         Use the parameters to create a smoother, imputed series to further
@@ -489,10 +492,10 @@ class TS_Tell():
         extrema_std : float default 4
             The std dev beyond which values may be extrema
         critical_z : float, default 2.326
-            The Z-value denoting the top and bottom % to consider for extrema/
-            outliers/anomolies (2.326 is top/bottom 1% - see a Critical Z chart
-            for more values)
-        return_results : bool default True
+            The Z-value to consider for extrema/outliers/anomolies (2.326 is 
+            the top/bottom 1% - see Notes for some typical values or consult
+            a Critical Z chart online / in a textbook
+        return_results : bool default False
             Whether or not to return the results via a pd.DataFrame
 
         Returns
@@ -531,6 +534,17 @@ class TS_Tell():
         occurs along the curve. Given the temporal nature of time series data, 
         this is ideal - the probability of the value being imputed should be 
         influenced by where along the curve it occurs and the values around it.
+
+        | ---------- | ---------- | -------------- |
+        | Conf Level | Critical Z | % top / bottom |
+        | ---------- | ---------- | -------------- |
+        |     80%    |    1.282   |  10.0% / 10.0% |
+        |     90%    |    1.645   |   5.0% / 5.0%  |
+        |     95%    |    1.960   |   2.5% / 2.5%  |
+        |     98%    |    2.326   |   1.0% / 1.0%  |
+        |     99%    |    2.576   |   0.5% / 0.5%  |
+        | ---------- | ---------- | -------------- |
+        
 
         References
         ----------
