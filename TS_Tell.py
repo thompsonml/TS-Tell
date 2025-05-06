@@ -139,6 +139,10 @@ class TS_Tell():
     def _get_WMA(self, s, period):
         """Private method to get the Weighted Moving Average
 
+        References
+        ----------
+        [1] https://stackoverflow.com/questions/64500904/how-to-calculate-hull-moving-average-in-python
+
         """
         return s.rolling(period).apply(lambda x: 
                         ((np.arange(period)+1)*x).sum() / 
@@ -148,6 +152,10 @@ class TS_Tell():
     def _get_HMA(self, s, period):
         """Private method to get Hull's Moving Average
 
+        References
+        ----------
+        [1] https://stackoverflow.com/questions/64500904/how-to-calculate-hull-moving-average-in-python
+        
         """
         return self._get_WMA(self._get_WMA(s, period // 2
                 ).multiply(2).sub(self._get_WMA(s, period)), int(np.sqrt(period)))
@@ -709,68 +717,101 @@ class TS_Tell():
         plt.grid()
         plt.show()
 
+    
+    def get_spectral_graphs(self, 
+                            top_n: int=2, 
+                            return_results=False) -> Optional[pd.DataFrame]:
+        """Get spectral graphs for possible seasonality
+        
+        This aids in determining whether there are any points of seasonality.
+        `top_n` defaults to 2 to uncover the possibility of multiple season-
+        alities.
 
-    def get_spectral_graphs(self) -> None:
-        """Get spectral graphs for possible seasonality 
+        Parameters
+        ----------
+        top_n : int default 2
+            The top `n` to consider as seasonal points
+        return_results : bool default False
+            Whether or not to return the results
 
-        @TODO
-            Return values
-            Return DFs
+        Returns
+        -------
+        freq : float
+            The frequency computed by the scipy periodogram function
+        psd : float
+            The power spectral density computed by the scipy periodogram 
+            function
+        freq_welch : float
+            The frequency computed by the scipy periodogram function using
+                Welch's method
+        psd_welch : float
+            The power spectral density computed by the scipy periodogram 
+            function using Welch's method
 
         Notes
         -----
-        @TODO
-        The Periodogram is more granular
+        The Periodogram is more granular, leading to less bias but at the 
+        expense of a more *noisy* or choppy curve.
 
-        Welch's reduces the Noise
+        Welch's method smoothes out the noise via averaging windowed Discrete 
+        Fourier Transforms (DFT). This loss of information may simplify the
+        signal, but comes at the cost of increasing bias.
 
+        Ideally, any signal value(s) found in the Periodogram will be *near* in 
+        proximity to a point(s) determined via Welch's method. For instance, if
+        using monthly data the Periodogram found a point x=11.95 hopefully the
+        value found by Welch's method would also be in the range [11.5, 12, 4].
+        These are floating point values, so--rounding--this could be evidence
+        for x=12 or annual seasonality.
+        
+        The best case is they both find similar (or no) values. Disagreement, 
+        however, would most likely indicate either more complex underlying
+        behavior occurs. In this case, consult other methods to better discern
+        whether seasonality (or multiple seasonality) exists.
+        
         References
         ----------
         [1] https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.welch.html
         
         """
-        # Compute periodogram
-        freq_spec, power_spec = periodogram(self.input_ts, self.season_length)        
-        spec_df = pd.DataFrame({"freq": freq_spec, "power": power_spec})
-        peak = spec_df.query("power.eq(power.max())")["freq"].item()
-        spec_top2 = spec_df.sort_values("power", ascending=False)[:2]["freq"]
+        freq_p, psd_p = periodogram(self.input_ts, fs=self.season_length)
+        spectral_df = pd.DataFrame({"freq": freq_p, "psd": psd_p})
+        top_spectral = spectral_df.sort_values("psd", ascending=False)[:top_n]
         
-        # Compute Welch's
-        freq_welch, power_welch = welch(self.input_ts, self.season_length)        
-        welch_df = pd.DataFrame({"freq": freq_welch, "power": power_welch})
-        peak_welch = welch_df.query("power.eq(power.max())")["freq"].item()
-        welch_top2 = welch_df.sort_values("power", ascending=False)[:2]["freq"]
+        freq_w, psd_w = welch(self.input_ts, fs=self.season_length)
+        welch_df = pd.DataFrame({"freq_welch": freq_w, "psd_welch": psd_w})
+        top_welch = welch_df.sort_values("psd_welch", ascending=False)[:top_n]
         
-        plt.figure(figsize=(12, 4))
+        # Plot both
+        plt.figure(figsize=(12, 6), layout="tight")
         plt.suptitle("Possible Seasonality Points")
         
         plt.subplot(1, 2, 1)
-        ax1 = spec_df["power"].plot()
-        ax1 = spec_df["power"].sort_values(ascending=
-                                           False)[:2].plot(ax=ax1, 
-                                                           marker='o', 
-                                                           ls='')
-        top_spec_vals  = ", ".join([str(np.round(x, 2)) 
-                                        for x in spec_top2])
-        plt.xlabel("Top 2 Candidates at: x=[{}]".format(top_spec_vals))
-        plt.title("Periodogram")
-        plt.grid()
-
-        plt.subplot(1, 2, 2)
-        ax2 = welch_df["power"].plot()
-        ax2 = welch_df["power"].sort_values(ascending=
-                                            False)[:2].plot(ax=ax2, 
-                                                            marker='o', 
-                                                            ls='')
-        top_welch_vals  = ", ".join([str(np.round(x, 2)) 
-                                         for x in welch_top2])
-        plt.xlabel("Top 2 Candidates at: x=[{}]".format(top_welch_vals))
-        plt.title("Welch's")
+        plt.plot(freq_p, psd_p)
+        plt.plot(top_spectral.freq, top_spectral.psd, ls='', marker='o')
+        plt.title('Periodogram')
+        plt.ylabel('Power Spectral Density')
+        top_spectral_vals  = ", ".join([str(np.round(x, top_n)) 
+                                         for x in sorted(top_spectral["freq"])])
+        plt.xlabel("Frequency\nTop {} Candidates at: x=[{}]".format(top_n, 
+                                                         top_spectral_vals))
         plt.grid()
         
-        plt.tight_layout()
+        plt.subplot(1, 2, 2)
+        plt.plot(freq_w, psd_w)
+        plt.plot(top_welch.freq_welch, top_welch.psd_welch, ls='', marker='o')
+        plt.title("Welch's Method")
+        top_welch_vals  = ", ".join([str(np.round(x, top_n)) 
+                                         for x in sorted(top_welch["freq_welch"])])
+        plt.xlabel("Frequency\nTop {} Candidates at: x=[{}]".format(top_n, 
+                                                         top_welch_vals))
+        
+        plt.grid()
         plt.show()
-
+        
+        if return_results:
+            return pd.concat([spectral_df, welch_df], axis=1)
+            
 
     def get_model_seasonalities(self, sig_pval: float=0.05) -> pd.DataFrame:
         """Get model seasonality tests
