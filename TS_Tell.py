@@ -224,7 +224,7 @@ class TS_Tell():
             - N-related (N, N Miss)
             - Moment-related (Max, mean, min, std, skew, kurtosis)
             - Transformation/TICS-related
-            - Stationarity (as-is and differenced)
+            - Stationarity-related (as-is and differenced)
 
         Parameters
         ----------
@@ -367,17 +367,15 @@ class TS_Tell():
         """Get AutoCorr Plots
         
         Get the combo plots: Time Series, PACF, and ACF
-
+--------------------------------------------------------------------------------
         Notes
         -----
-        For more info, see Dr. Nau's lecture notes via References below.
-
         PACF: the number of possible AR term(s)
         ACF: the number of possible MA term(s)
-        Early Lags: generally 0, 1, 2
-        Late Lags: typically 12, 24 - will also sometimes oscillate between 
-            positive and negative (i.e., across the x-axis where 12 may be
-            negative and 24 is positive)
+        Early Lags: <generally> 0, 1, 2
+        Late Lags: 12, 24, 36, etc. - typically, for monthly data> - will also 
+            sometimes oscillate between positive and negative (i.e., across the 
+            x-axis where 12 may be negative and 24 is positive)
         ARIMA: typically sees an Early Lag on either PACF or ACF
         SARIMA: generally exhibits both and Early Lag and a Late Lag
         - Note: this does not mean `multiple` seasonalities, where a signal
@@ -389,7 +387,7 @@ class TS_Tell():
         uncommon to fit a model using the PACF and ACF results and then find 
         that a term is suddenly insignificant. One such example is when both AR 
         and MA terms are specified simultaneously which can mathematically lead 
-        to cancelling of terms. 
+        to cancelling of terms.
     
         References
         ----------
@@ -519,7 +517,7 @@ class TS_Tell():
 
         Raises
         ------
-        raiseValueError
+        ValueError
             If the value passed to `smoother` is not:
                 - 'WE'
                 - 'SG'
@@ -550,7 +548,7 @@ class TS_Tell():
         ----------
         [1] https://en.wikipedia.org/wiki/Savitzky%E2%80%93Golay_filter
 
-        [2]
+        [2] https://stackoverflow.com/questions/64500904/how-to-calculate-hull-moving-average-in-python
 
         [3]
 
