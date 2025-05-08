@@ -107,15 +107,30 @@ class TS_Tell():
         self.data_freq = pd.infer_freq(self.input_ts.index)[:1]
         return self.data_freq
 
-
-    def _get_trend_dataframe(self) -> pd.DataFrame:
+    
+    def _get_trend_dataframe(self, time_feats: bool=False) -> pd.DataFrame:
         """Private method to obtain a trend dataframe for multiple methods
 
+        Parameters
+        ----------
+        time_feats : bool default False
+            Whether or not to return time-based features
+
+        Returns
+        -------
+        t : int
+            An ever-increasing integer representing time
         """
         df = pd.DataFrame(self.input_ts)
         df.columns = ['y']
+        if time_feats:
+            df['t'] = range(len(df))
+            df["week"] = df.index.isocalendar().week.astype(float)
+            df["month"] = df.index.month.astype(float)
+            df["quarter"] = df.index.quarter.astype(float)
+            df["year"] = df.index.year.astype(float)
         return df
-
+        
 
     def _get_hp_lambda(self) -> int:
         """Private method to get the value for the Hodrick-Prescott Lambda
@@ -367,7 +382,7 @@ class TS_Tell():
         """Get AutoCorr Plots
         
         Get the combo plots: Time Series, PACF, and ACF
---------------------------------------------------------------------------------
+
         Notes
         -----
         PACF: the number of possible AR term(s)
@@ -398,7 +413,6 @@ class TS_Tell():
         """    
         fig = plt.figure(figsize=(12, 5))
         
-        # time series
         ax1 = fig.add_subplot(2, 1, 1)
         ax1.set_title("Input Time Series")
         ax1.grid()
@@ -552,9 +566,9 @@ class TS_Tell():
 
         [3]
 
-        @TODO
-        -----
-        [1] https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html
+        # @TODO
+        -------
+        Examine https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html for applicability
         
         """
         df = self._get_trend_dataframe()
@@ -675,8 +689,7 @@ class TS_Tell():
         
         """
         print("### LINEAR TREND TEST ###")
-        df = self._get_trend_dataframe()
-        df['t'] = range(len(df))
+        df = self._get_trend_dataframe(time_feats=True)
         ols = sm.OLS(df.t, sm.add_constant(df.y)).fit()
         print(ols.summary())
         linear_trend_pval = ols.pvalues[1:].item()
@@ -810,14 +823,18 @@ class TS_Tell():
         if return_results:
             return pd.concat([spectral_df, welch_df], axis=1)
             
-
-    def get_model_seasonalities(self, sig_pval: float=0.05) -> pd.DataFrame:
+    # @TODO Refactor to obtain time-based features as separate getter
+    def get_model_seasonalities(self, 
+                                sig_pval: float=0.05,
+                                return_results: bool=False) -> Optional[pd.DataFrame]:
         """Get model seasonality tests
 
         Parameters
         ----------
         sig_pval : float default 0.05
             The p-value about which significance is determined
+        return_results : bool default False
+            Whether or not to return the results via pd.DataFrame
 
         Notes
         -----
@@ -841,11 +858,7 @@ class TS_Tell():
         them, this method can identify multiple seasonalities independently.
         
         """
-        df = self._get_trend_dataframe()
-        df["week"] = df.index.isocalendar().week.astype(float)
-        df["month"] = df.index.month.astype(float)
-        df["quarter"] = df.index.quarter.astype(float)
-        df["year"] = df.index.year.astype(float)
+        df = self._get_trend_dataframe(time_feats=True)
         
         seasonalities_df = pd.DataFrame()
         
@@ -864,13 +877,12 @@ class TS_Tell():
                     "Seasonalities detected. ***")
         else:
             print(seasonalities_df)
-            return seasonalities_df
+            if return_results:
+                return seasonalities_df
 
     
-    # @TODO: Kruskal Seasonality Tests
+    # @TODO: def get_seasonality_kruskal(self, ): """ Kruskal Seasonality Tests """
 
-    # @TODO: CH test
-    
     
     def get_seasonal_autocorr(self) -> None:
         """Get an Autocorrelation plot to examine for possible Seasonality
@@ -960,6 +972,15 @@ class TS_Tell():
         print()
         self.get_model_seasonalities()
         print()
+
+
+    # @TODO def get_auto_models(self, return_results: bool=False) -> Optional[pd.DataFrame]: """ Get automatic models """
+
+    
+    # @TODO 
+
+    
+    # @TODO def get_model_graphs(self, ) -> None: """ Get graphs of model performance in-sample/out-of-sample/full sample """
 
 
     def get_profile_ts(self):
