@@ -480,12 +480,12 @@ class TS_Tell():
     
     
     def get_smoothed_imputation(self, 
-                                smoother="WE",
-                                smooth_order=3,
-                                std_points=4,
-                                extrema_std=3,
-                                critical_z=2.326,
-                                return_results=False) -> Optional[pd.DataFrame]:
+                                smoother: str="WE",
+                                smooth_order: int=3,
+                                std_points: int=4,
+                                extrema_std: int=3,
+                                critical_z: float=2.326,
+                                return_results: bool=False) -> Optional[pd.DataFrame]:
         """Get a smoothed, imputed version of the input Time Series
 
         Use the parameters to create a smoother, imputed series to further
@@ -576,7 +576,7 @@ class TS_Tell():
 
         [3]
 
-        # @TODO
+        @TODO
         -------
         Examine https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html for applicability
         
@@ -650,6 +650,7 @@ class TS_Tell():
         Notes
         -----
         @TODO
+        
         """
         df = self._get_trend_dataframe()
         lag_dict = {}
@@ -692,26 +693,28 @@ class TS_Tell():
             t1 = 1
             t2 = 2
             t3 = 3
-            ...
+            .
+            .
+            .
             tn = n
+            
         This is regressed against the input time series ('y'): therefore, if it
         is significant, then there is evidence of Trend in y.
 
         The residuals from this regression now represent the input time series,
-        as the, "de-trended," series.
-
+        "de-trended."
+        
         """
         print("### LINEAR TREND TEST ###")
         df = self._get_trend_dataframe(time_feats=True)
         ols = sm.OLS(df.y, sm.add_constant(df.t)).fit()
         print(ols.summary())
         linear_trend_pval = ols.pvalues[1:].item()
-        #self.linear_trend = linear_trend_pval < sig_pval
         if print_messages:
             print("\n#####  RESULTS: TEST FOR LINEAR TREND  #####")
             print("- With a p-value of {:0.4f}, there ".format(
                 linear_trend_pval), end='')
-            trend_msg = np.where(linear_trend_pval > 0.05, 
+            trend_msg = np.where(linear_trend_pval > sig_pval, 
                                  "is *NOT ENOUGH* evidence for a linear trend", 
                                  "*APPEARS* to be evidence for a linear trend")
             print("{}".format(trend_msg))
@@ -792,15 +795,19 @@ class TS_Tell():
         ols = sm.OLS(df.y, sm.add_constant(X)).fit()
         print(ols.summary())
         non_linear_pval = ols.pvalues[2:].item()
-        #self.linear_trend = linear_trend_pval < sig_pval
         if print_messages:
             print("\n#####  RESULTS: TEST FOR NON-LINEAR TREND  #####")
             print("- With a p-value of {:0.4f}, there ".format(
                 non_linear_pval), end='')
-            trend_msg = np.where(non_linear_pval > 0.05, 
-                                 "is *NOT ENOUGH* evidence for a linear trend", 
-                                 "*APPEARS* to be evidence for a linear trend")
+            trend_msg = np.where(non_linear_pval > sig_pval, 
+                             "is *NOT ENOUGH* evidence for a non-linear trend", 
+                             "*APPEARS* to be evidence for a non-linear trend")
             print("{}".format(trend_msg))
+            if non_linear_pval < sig_pval:
+                beta_linear = ols.params[1:2].item()
+                beta_non_linear = ols.params[2:3].item()
+                infl_point = abs(beta_linear / (2 * beta_non_linear))
+                print("\nInflection Point at: {:0.4f}".format(infl_point))
 
 
     def get_spectral_graphs(self, 
