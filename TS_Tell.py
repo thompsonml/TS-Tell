@@ -475,6 +475,9 @@ class TS_Tell():
         plt.tight_layout()
         plt.show()
 
+
+    # @TODO get_outliers_autoencoder(self) -> Optional[pd.DataFrame]: """Get outliers via a Variational AutoEncoder """
+    
     
     def get_smoothed_imputation(self, 
                                 smoother="WE",
@@ -544,8 +547,8 @@ class TS_Tell():
         Essentially, these smoothers estimate the center of mass of the input 
         time series, meaning imputation will be affected by where the value 
         occurs along the curve. Given the temporal nature of time series data, 
-        this is ideal - the probability of the value being imputed should be 
-        influenced by where along the curve it occurs and the values around it.
+        this is ideal - the probability of the value being imputed *should* be 
+        influenced by the values around it and where along the curve it occurs.
 
         | ---------- | ---------- | -------------- |
         | Conf Level | Critical Z | % top / bottom |
@@ -556,7 +559,14 @@ class TS_Tell():
         |     98%    |    2.326   |   1.0% / 1.0%  |
         |     99%    |    2.576   |   0.5% / 0.5%  |
         | ---------- | ---------- | -------------- |
-        
+
+        An important point to note is that when this method imputes a value, it
+        preserves at least some of the information of that value being extreme.
+        As in, while it does lessen the degree of extremity, it's only doing so
+        for the purpose of making the function *behave* better for modeling and
+        analysis. This is contrast with methods that pull extreme values back to
+        mean point of the curve, thereby diluting any inherent information in
+        that value.
 
         References
         ----------
@@ -660,12 +670,15 @@ class TS_Tell():
 
     
     def get_trend_test(self, 
+                       add_sqr_term: bool=False,
                        sig_pval: float=0.05, 
                        print_messages: bool=True) -> None:
         """Get results from a Linear Trend test
 
         Parameters
         ----------
+        add_sqr_term : bool default False
+            Whether or not to add a square term
         sig_pval : float default 0.05
             The p-value about which significance is determined
         print_messages : bool default True
@@ -686,14 +699,14 @@ class TS_Tell():
 
         The residuals from this regression now represent the input time series,
         as the, "de-trended," series.
-        
+
         """
         print("### LINEAR TREND TEST ###")
         df = self._get_trend_dataframe(time_feats=True)
-        ols = sm.OLS(df.t, sm.add_constant(df.y)).fit()
+        ols = sm.OLS(df.y, sm.add_constant(df.t)).fit()
         print(ols.summary())
         linear_trend_pval = ols.pvalues[1:].item()
-        self.linear_trend = linear_trend_pval < sig_pval
+        #self.linear_trend = linear_trend_pval < sig_pval
         if print_messages:
             print("\n#####  RESULTS: TEST FOR LINEAR TREND  #####")
             print("- With a p-value of {:0.4f}, there ".format(
@@ -728,7 +741,68 @@ class TS_Tell():
         plt.grid()
         plt.show()
 
-    
+
+    def get_nltrend_test(self, 
+                         sig_pval: float=0.05, 
+                         print_messages: bool=True) -> None:
+        """Get results from a Non-Linear Trend test
+
+        Parameters
+        ----------
+        sig_pval : float default 0.05
+            The p-value about which significance is determined
+        print_messages : bool default True
+            Whether or not to print the output messages
+
+        Notes
+        -----
+        In Econometrics, as with the test for Linear Trend testing for a Non-
+        Linear Trend is easily accomplished via Ordinary Least Squares (OLS)
+        regression. An ever-increasing integer at time (t) is also squared at
+        each time period as follows:
+        
+        | ----------- | --- | ------ |
+        | time period |  t  | t_sqr  |
+        | ----------- | --- | ------ |
+        |     1       |  1  |    1   |
+        |     2       |  2  |    4   |
+        |     3       |  3  |    9   |
+        |     4       |  4  |   16   |
+        |     5       |  5  |   25   |
+        |     .       |  .  |    .   |
+        |     .       |  .  |    .   |
+        |     .       |  .  |    .   |        
+        |     n       |  n  |  n^2   |
+        | ----------- | --- | ------ |
+
+        These are regressed against the input time series ('y'): therefore, if
+        is t_sqr is significant, then there is evidence of a Non-Linear Trend 
+        in y.
+
+        Note: the significance of t has absolutly no bearing on the outcome. A
+        square term is a special case of interaction, and when an interaction 
+        is introduced, an entirely differently model is being estimated (Cond-
+        itional Effects, not Main Effects).
+
+        """
+        print("### NON-LINEAR TREND TEST ###")
+        df = self._get_trend_dataframe(time_feats=True)
+        df["t_sqr"] = df['t'] ** 2
+        X = df[['t', "t_sqr"]]
+        ols = sm.OLS(df.y, sm.add_constant(X)).fit()
+        print(ols.summary())
+        non_linear_pval = ols.pvalues[2:].item()
+        #self.linear_trend = linear_trend_pval < sig_pval
+        if print_messages:
+            print("\n#####  RESULTS: TEST FOR NON-LINEAR TREND  #####")
+            print("- With a p-value of {:0.4f}, there ".format(
+                non_linear_pval), end='')
+            trend_msg = np.where(non_linear_pval > 0.05, 
+                                 "is *NOT ENOUGH* evidence for a linear trend", 
+                                 "*APPEARS* to be evidence for a linear trend")
+            print("{}".format(trend_msg))
+
+
     def get_spectral_graphs(self, 
                             top_n: int=2, 
                             return_results=False) -> Optional[pd.DataFrame]:
@@ -823,7 +897,7 @@ class TS_Tell():
         if return_results:
             return pd.concat([spectral_df, welch_df], axis=1)
             
-    # @TODO Refactor to obtain time-based features as separate getter
+
     def get_model_seasonalities(self, 
                                 sig_pval: float=0.05,
                                 return_results: bool=False) -> Optional[pd.DataFrame]:
@@ -1008,6 +1082,9 @@ class TS_Tell():
         print()
         print()
         self.get_trend_test()
+        print()
+        print()
+        self.get_nltrend_test()
         print()
         print()
         self.get_lag_tests()
