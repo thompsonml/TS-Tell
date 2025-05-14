@@ -671,15 +671,12 @@ class TS_Tell():
 
     
     def get_trend_test(self, 
-                       add_sqr_term: bool=False,
                        sig_pval: float=0.05, 
                        print_messages: bool=True) -> None:
         """Get results from a Linear Trend test
 
         Parameters
         ----------
-        add_sqr_term : bool default False
-            Whether or not to add a square term
         sig_pval : float default 0.05
             The p-value about which significance is determined
         print_messages : bool default True
@@ -714,7 +711,7 @@ class TS_Tell():
             print("\n#####  RESULTS: TEST FOR LINEAR TREND  #####")
             print("- With a p-value of {:0.4f}, there ".format(
                 linear_trend_pval), end='')
-            trend_msg = np.where(linear_trend_pval > sig_pval, 
+            trend_msg = np.where(linear_trend_pval >= sig_pval, 
                                  "is *NOT ENOUGH* evidence for a linear trend", 
                                  "*APPEARS* to be evidence for a linear trend")
             print("{}".format(trend_msg))
@@ -746,12 +743,15 @@ class TS_Tell():
 
 
     def get_nltrend_test(self, 
+                         third_order: bool=False,
                          sig_pval: float=0.05, 
                          print_messages: bool=True) -> None:
         """Get results from a Non-Linear Trend test
 
         Parameters
         ----------
+        third_order : bool default False
+            Whether or not to additionally consider a 3rd order effect
         sig_pval : float default 0.05
             The p-value about which significance is determined
         print_messages : bool default True
@@ -785,25 +785,49 @@ class TS_Tell():
         Note: the significance of t has absolutly no bearing on the outcome. A
         square term is a special case of interaction, and when an interaction 
         is introduced, an entirely differently model is being estimated (Cond-
-        itional Effects, not Main Effects).
+        itional Effects, not Main Effects). 
 
         """
         print("### NON-LINEAR TREND TEST ###")
+        
         df = self._get_trend_dataframe(time_feats=True)
         df["t_sqr"] = df['t'] ** 2
-        X = df[['t', "t_sqr"]]
+        
+        Xs = ['t', "t_sqr"]
+        if third_order:
+            df["t_cub"] = df['t'] ** 3
+            Xs.append("t_cub")
+        
+        X = df[Xs]
         ols = sm.OLS(df.y, sm.add_constant(X)).fit()
-        print(ols.summary())
-        non_linear_pval = ols.pvalues[2:].item()
+        print(ols.summary())        
+        
+        second_order_pval = ols.pvalues[2:3].item()
+        non_linear_pval = second_order_pval        
+        trend_order = "2nd Order"
+        
+        if third_order:
+            third_order_pval = ols.pvalues[3:4].item()
+            non_linear_pval = np.where(third_order_pval < sig_pval,
+                                       third_order_pval,
+                                       second_order_pval)
+        
+            trend_order = np.where(third_order_pval < sig_pval, 
+                                   "3rd Order",
+                                   np.where(second_order_pval < sig_pval, 
+                                            "2nd Order",
+                                            "Non-Linear")
+                                  )
+                               
         if print_messages:
             print("\n#####  RESULTS: TEST FOR NON-LINEAR TREND  #####")
             print("- With a p-value of {:0.4f}, there ".format(
                 non_linear_pval), end='')
-            trend_msg = np.where(non_linear_pval > sig_pval, 
-                             "is *NOT ENOUGH* evidence for a non-linear trend", 
-                             "*APPEARS* to be evidence for a non-linear trend")
+            trend_msg = np.where(non_linear_pval >= sig_pval, 
+                             f"is *NOT ENOUGH* evidence for a Non-Linear trend",
+                             f"*APPEARS* to be evidence for a {trend_order} trend")
             print("{}".format(trend_msg))
-            if non_linear_pval < sig_pval:
+            if not third_order and non_linear_pval < sig_pval:
                 beta_linear = ols.params[1:2].item()
                 beta_non_linear = ols.params[2:3].item()
                 infl_point = abs(beta_linear / (2 * beta_non_linear))
