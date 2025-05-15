@@ -108,27 +108,60 @@ class TS_Tell():
         return self.data_freq
 
     
-    def _get_trend_dataframe(self, time_feats: bool=False) -> pd.DataFrame:
-        """Private method to obtain a trend dataframe for multiple methods
+    def get_trend_dataframe(self, 
+                            time_feats: bool=False,
+                            time_dummies: bool=False,
+                            ) -> pd.DataFrame:
+        """Obtain a trend dataframe with option time features
 
+        * NOTE: `time_dummies` cannot be True if `time_feats` is False
+        
         Parameters
         ----------
         time_feats : bool default False
             Whether or not to return time-based features
+        time_dummies : bool default False
+            Whether or not to return time-based features in dummy form
+        
+        Raises
+        ------
+        ValueError
+           If `time_dummies` is True and `time_feats` is false
 
         Returns
         -------
+        y : float
+            The input time series
         t : int
             An ever-increasing integer representing time
+        week : int
+            The week number of the year
+        month : int
+            The month number of the year
+        quarter : int
+            The quarter number of the year
+        year : int
+            The year of the input time series
+        
         """
+        if time_dummies and not time_feats:
+            raise ValueError("`time_dummies` cannot be True if "
+                                "`time_feats` is False")
+
         df = pd.DataFrame(self.input_ts)
         df.columns = ['y']
+        
         if time_feats:
-            df['t'] = range(len(df))
-            df["week"] = df.index.isocalendar().week.astype(float)
-            df["month"] = df.index.month.astype(float)
-            df["quarter"] = df.index.quarter.astype(float)
-            df["year"] = df.index.year.astype(float)
+            df['t'] = range(1, len(df)+1)
+            df["week"] = df.index.isocalendar().week.astype(int)
+            df["month"] = df.index.month.astype(int)
+            df["quarter"] = df.index.quarter.astype(int)
+            df["year"] = df.index.year.astype(int)
+
+            if time_dummies:
+                cols = ["week", "month", "quarter", "year"]
+                df = pd.get_dummies(df, columns=cols, dtype=int)
+                
         return df
         
 
@@ -268,9 +301,12 @@ class TS_Tell():
                 |  1.0  | Normal      |
                 | ----- | ----------- |                
 
-            Stepping back, the whole reason data are transformed are an attempt
-            to remedy due to "ill-behaving" data. 
-            @TODO
+            Stepping back, the whole reason data are transformed is to remedy
+            some or multiple aspects of "ill-behaving" data. Not that `y` needs 
+            to be approximately Normally distributed, but knowing the value 
+            immediately tips you off. As in, if the value is close enough to 1, 
+            then we already know it's ~N(0, 1) and a Normal transformation won't
+            be of any value.
                 
         Ljung-Box: Ljung-Box tests indepence amongst the residuals of a time
             series model by examining autocorrelation. A significant p-value 
@@ -581,7 +617,7 @@ class TS_Tell():
         Examine https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html for applicability
         
         """
-        df = self._get_trend_dataframe()
+        df = self.get_trend_dataframe()
         df["std_roll"] = df["y"].rolling(std_points).std()
         df["std_roll"] = df["std_roll"].interpolate(limit_direction="both")
         df['z'] = (df['y'] - df['y'].mean()) / df['y'].std()
@@ -652,7 +688,7 @@ class TS_Tell():
         @TODO
         
         """
-        df = self._get_trend_dataframe()
+        df = self.get_trend_dataframe()
         lag_dict = {}
         for i in range(1, self.season_length + 1):
             ols = sm.OLS.from_formula('y ~ y.shift(' + str(i) + ')', df).fit()
@@ -703,7 +739,7 @@ class TS_Tell():
         
         """
         print("### LINEAR TREND TEST ###")
-        df = self._get_trend_dataframe(time_feats=True)
+        df = self.get_trend_dataframe(time_feats=True)
         ols = sm.OLS(df.y, sm.add_constant(df.t)).fit()
         print(ols.summary())
         linear_trend_pval = ols.pvalues[1:].item()
@@ -726,7 +762,7 @@ class TS_Tell():
         The Hodrick-Prescott filter 
 
         """
-        df = self._get_trend_dataframe()
+        df = self.get_trend_dataframe()
         cycle, trend = sm.tsa.filters.hpfilter(self.input_ts, 
                                                self._get_hp_lambda())
         df["cycle"] = cycle
@@ -760,9 +796,9 @@ class TS_Tell():
         Notes
         -----
         In Econometrics, as with the test for Linear Trend testing for a Non-
-        Linear Trend is easily accomplished via Ordinary Least Squares (OLS)
-        regression. An ever-increasing integer at time (t) is also squared at
-        each time period as follows:
+        Linear Trend is again easily accomplished via Ordinary Least Squares 
+        (OLS) regression. An ever-increasing integer at time (t) is also 
+        squared at each time period as follows:
         
         | ----------- | --- | ------ |
         | time period |  t  | t_sqr  |
@@ -782,15 +818,15 @@ class TS_Tell():
         is t_sqr is significant, then there is evidence of a Non-Linear Trend 
         in y.
 
-        Note: the significance of t has absolutly no bearing on the outcome. A
-        square term is a special case of interaction, and when an interaction 
+        Note: the significance of `t` has absolutely no bearing on the outcome. 
+        A square term is a special case of interaction, and when an interaction 
         is introduced, an entirely differently model is being estimated (Cond-
         itional Effects, not Main Effects). 
 
         """
         print("### NON-LINEAR TREND TEST ###")
         
-        df = self._get_trend_dataframe(time_feats=True)
+        df = self.get_trend_dataframe(time_feats=True)
         df["t_sqr"] = df['t'] ** 2
         
         Xs = ['t', "t_sqr"]
@@ -824,7 +860,7 @@ class TS_Tell():
             print("- With a p-value of {:0.4f}, there ".format(
                 non_linear_pval), end='')
             trend_msg = np.where(non_linear_pval >= sig_pval, 
-                             f"is *NOT ENOUGH* evidence for a Non-Linear trend",
+                             f"is *INSUFFICIENT* evidence for a Non-Linear trend",
                              f"*APPEARS* to be evidence for a {trend_order} trend")
             print("{}".format(trend_msg))
             if not third_order and non_linear_pval < sig_pval:
@@ -963,7 +999,7 @@ class TS_Tell():
         them, this method can identify multiple seasonalities independently.
         
         """
-        df = self._get_trend_dataframe(time_feats=True)
+        df = self.get_trend_dataframe(time_feats=True)
         
         seasonalities_df = pd.DataFrame()
         
