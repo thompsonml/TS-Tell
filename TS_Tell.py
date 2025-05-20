@@ -154,7 +154,7 @@ class TS_Tell():
 
 
     # PUBLIC methods
-    def get_model_dict(self):
+    def get_models_dict(self):
         model_dict =  {"AutoARIMA": AutoARIMA(sp=self.season_length, 
                                               start_p=0, 
                                               start_q=0, 
@@ -1244,7 +1244,7 @@ class TS_Tell():
         if time_builds:
             start_time = datetime.datetime.now()
             
-        for model_name, model_spec in self.get_model_dict().items():
+        for model_name, model_spec in self.get_models_dict().items():
             this_df = self.model_perf_inoutfull(model_name, model_spec)
             res_df = pd.concat([res_df, this_df])
 
