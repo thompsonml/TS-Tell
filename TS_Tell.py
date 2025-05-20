@@ -46,6 +46,7 @@ from sktime.forecasting.statsforecast import StatsForecastAutoTBATS
 from sktime.forecasting.naive import NaiveForecaster
 from sktime.forecasting.fbprophet import Prophet
 
+from sktime.forecasting.base import ForecastingHorizon
 
 class TS_Tell():
     def __init__(self, 
@@ -108,6 +109,78 @@ class TS_Tell():
         return self.data_freq
 
     
+    def _get_hp_lambda(self) -> int:
+        """Private method to get the value for the Hodrick-Prescott Lambda
+
+        References
+        ----------
+        [1] https://www.stata.com/manuals/tstsfilterhp.pdf
+            - P. 8, first paragraph
+        """
+        hp_lambda_dict = {'A': 1600/4**4,
+                          "6M": 100,
+                          'Q': 1600,
+                          'M': 1600 * 3**4, 
+                          'W': 1600 * 12**4,
+                          'D': 1600 * (365/4)**4,
+                         }
+        hp_lambda = hp_lambda_dict[self._get_data_freq()]
+        return hp_lambda
+
+    
+    def _get_WMA(self, s, period):
+        """Private method to get the Weighted Moving Average
+
+        References
+        ----------
+        [1] https://stackoverflow.com/questions/64500904/how-to-calculate-hull-moving-average-in-python
+
+        """
+        return s.rolling(period).apply(lambda x: 
+                        ((np.arange(period)+1)*x).sum() / 
+                                      (np.arange(period)+1).sum(), raw=True)
+
+    
+    def _get_HMA(self, s, period):
+        """Private method to get Hull's Moving Average
+
+        References
+        ----------
+        [1] https://stackoverflow.com/questions/64500904/how-to-calculate-hull-moving-average-in-python
+        
+        """
+        return self._get_WMA(self._get_WMA(s, period // 2
+                ).multiply(2).sub(self._get_WMA(s, period)), int(np.sqrt(period)))
+
+
+    # PUBLIC methods
+    def get_model_dict(self):
+        model_dict =  {"AutoARIMA": AutoARIMA(sp=self.season_length, 
+                                              start_p=0, 
+                                              start_q=0, 
+                                              max_order=None, 
+                                              n_jobs=-1, 
+                                              suppress_warnings=True),
+         "SFAutoARIMA": StatsForecastAutoARIMA(sp=self.season_length, 
+                                               start_p=0, 
+                                               start_q=0, 
+                                               max_order=None, 
+                                               n_jobs=-1),
+         "AutoETS": AutoETS(sp=self.season_length, auto=True, n_jobs=-1),
+         "SFAutoCES": StatsForecastAutoCES(season_length=self.season_length, 
+                                           model='Z'),
+         "SFAutoTheta": StatsForecastAutoTheta(season_length=
+                                               self.season_length),
+         "SFAutoTBATS": StatsForecastAutoTBATS(seasonal_periods=
+                                               self.season_length),
+         "NaiveLast": NaiveForecaster(strategy="last", sp=self.season_length),
+         "NaiveMean": NaiveForecaster(strategy="mean", sp=self.season_length),
+         "Prophet": Prophet(add_country_holidays={'country_name': 'US'}, 
+                            daily_seasonality=False)
+        }
+        return model_dict
+                
+
     def get_trend_dataframe(self, 
                             time_feats: bool=False,
                             time_dummies: bool=False,
@@ -165,51 +238,6 @@ class TS_Tell():
         return df
         
 
-    def _get_hp_lambda(self) -> int:
-        """Private method to get the value for the Hodrick-Prescott Lambda
-
-        References
-        ----------
-        [1] https://www.stata.com/manuals/tstsfilterhp.pdf
-            - P. 8, first paragraph
-        """
-        hp_lambda_dict = {'A': 1600/4**4,
-                          "6M": 100,
-                          'Q': 1600,
-                          'M': 1600 * 3**4, 
-                          'W': 1600 * 12**4,
-                          'D': 1600 * (365/4)**4,
-                         }
-        hp_lambda = hp_lambda_dict[self._get_data_freq()]
-        return hp_lambda
-
-    
-    def _get_WMA(self, s, period):
-        """Private method to get the Weighted Moving Average
-
-        References
-        ----------
-        [1] https://stackoverflow.com/questions/64500904/how-to-calculate-hull-moving-average-in-python
-
-        """
-        return s.rolling(period).apply(lambda x: 
-                        ((np.arange(period)+1)*x).sum() / 
-                                      (np.arange(period)+1).sum(), raw=True)
-
-    
-    def _get_HMA(self, s, period):
-        """Private method to get Hull's Moving Average
-
-        References
-        ----------
-        [1] https://stackoverflow.com/questions/64500904/how-to-calculate-hull-moving-average-in-python
-        
-        """
-        return self._get_WMA(self._get_WMA(s, period // 2
-                ).multiply(2).sub(self._get_WMA(s, period)), int(np.sqrt(period)))
-
-    
-    # PUBLIC methods
     def get_stationarity_tests(self) -> tuple:
         """Get stationarity tests to examine for presence of a unit root
 
@@ -447,7 +475,7 @@ class TS_Tell():
         [2] https://people.duke.edu/~rnau/Mathematical_structure_of_ARIMA_models--Robert_Nau.pdf
         
         """    
-        fig = plt.figure(figsize=(12, 5))
+        fig = plt.figure(figsize=(13, 5))
         
         ax1 = fig.add_subplot(2, 1, 1)
         ax1.set_title("Input Time Series")
@@ -488,7 +516,7 @@ class TS_Tell():
         to examine for possible Extrema.
         
         """
-        plt.figure(figsize=(12,4))
+        plt.figure(figsize=(13,5))
         plt.suptitle("Histogram and Boxplot")
         
         plt.subplot(1, 2, 1)
@@ -654,7 +682,7 @@ class TS_Tell():
             )
         )
 
-        df['y'].plot(figsize=(13, 4), alpha=0.6, label="Input Series")
+        df['y'].plot(figsize=(13, 5), alpha=0.6, label="Input Series")
         df["smooth_ts"].plot(c='g', label=smooth_kind)
         styling = {"color": "peru", "ls": '--', "marker": 'o', 
                    "markersize": 1.5, "alpha": 0.3}
@@ -767,7 +795,7 @@ class TS_Tell():
                                                self._get_hp_lambda())
         df["cycle"] = cycle
         df["trend"] = trend
-        fig, ax = plt.subplots(figsize=(12, 4))
+        fig, ax = plt.subplots(figsize=(13, 5))
         df['y'].plot(ax=ax, alpha=0.75)
         df["trend"].plot(ax=ax, ls='--', lw=2)
         plt.title("Trend: Hodrick-Prescott Filter ($\lambda$=" \
@@ -935,7 +963,7 @@ class TS_Tell():
         top_welch = welch_df.sort_values("psd_welch", ascending=False)[:top_n]
         
         # Plot both
-        plt.figure(figsize=(12, 6), layout="tight")
+        plt.figure(figsize=(13, 5), layout="tight")
         plt.suptitle("Possible Seasonality Points")
         
         plt.subplot(1, 2, 1)
@@ -1029,12 +1057,12 @@ class TS_Tell():
         """Get an Autocorrelation plot to examine for possible Seasonality
         
         """
-        plt.figure(figsize=(12, 4))
+        plt.figure(figsize=(13, 5))
         plt.title("Visual Examination for Seasonal Component", fontsize=11)
         autocorrelation_plot(self.input_ts.tolist())
 
 
-    def get_train_test(self, train_pct_or_n: float=0.95) -> Optional[Tuple]:
+    def get_train_test(self, train_pct_or_n: float=0.95) -> Tuple:
         """Get Train/Test split Plot
 
         Parameters
@@ -1070,6 +1098,7 @@ class TS_Tell():
         else:
             raise ValueError("The value for `train_pct_or_n` cannot be equal " \
                                 "to 1 or less than or equal to 0")
+            
         train, test = self.input_ts[:train_n], self.input_ts[train_n:]
         train.index.freq = self._get_data_freq()
         test.index.freq = self._get_data_freq()
@@ -1115,19 +1144,138 @@ class TS_Tell():
         print()
 
 
-    # @TODO def get_auto_models(self, return_results: bool=False) -> Optional[pd.DataFrame]: """ Get automatic models """
+    def model_perf_inoutfull(self, 
+                             model_name: str, 
+                             model_spec) -> pd.DataFrame:
+        """Model performance in/out/full
 
+        Specifically on the In-Sample (Train), Out-of-Sample (Test),
+        and the Full input time series
     
-    # @TODO 
+        Parameters
+        ----------
+        model_name : str
+            The name of the model
+        model_spec
+            The model-specific specifications for a specific model
+    
+        Returns
+        -------
+        index : str
+            Name of the model
+        mape_train : float
+            The MAPE of the in-sample Train set
+        mape_test : float
+            The MAPE of the out-of-sample Test set
+        mape_full : float
+            The MAPE of the full input time series passed
+    
+        """
+    
+        import warnings
+        warnings.filterwarnings('ignore')
+        
+        y_train, y_test = self.get_train_test()
+        y = pd.concat([y_train, y_test])
+        model = model_spec
+        model.fit(y_train)
+        mapes = []
+        
+        for model_window in [y_train, y_test, y]:
+            if "Naive" in model_name:
+                fh = [x for x in range(len(model_window))]
+            else:
+                fh = ForecastingHorizon(model_window.index, is_relative=False)
+            try:
+                pred = model.predict(fh)
+                mape = mean_absolute_percentage_error(model_window, pred) * 100
+                mapes.append(mape)
+            except:
+                print(f"The {model_name} could not be fit.")
+                pass
+    
+        mape_names = ["mape_train", "mape_test", "mape_full"]
+        res_df = pd.DataFrame(data=[mapes], columns=mape_names)
+        
+        res_df.index = [model_name]
+        res_df.index.name = "model"
+    
+        return res_df
+
+        
+    def get_auto_models(self,
+                        time_builds: bool=False,
+                        print_results: bool=True,
+                        return_results: bool=False) -> Optional[pd.DataFrame]: 
+        """ Get automatic models
+
+        Parameters
+        ----------
+        time_builds : bool default False
+            Whether or not to time the model builds
+        print_results : bool default True
+            Whether or not to print the results
+        return_results : bool defaul False
+            Whether or not to return the resultant pd.DataFrame
+
+        Returns
+        -------
+        index : str
+            Name of the model
+        mape_train : float
+            The MAPE of the in-sample Train set
+        mape_test : float
+            The MAPE of the out-of-sample Test set
+        mape_full : float
+            The MAPE of the full input time series passed        
+        
+        """
+
+        import warnings
+        import datetime
+
+        # Ignore all warnings
+        warnings.filterwarnings("ignore")
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        
+        res_df = pd.DataFrame(columns=["mape_train", "mape_test", "mape_full"])
+
+        if time_builds:
+            start_time = datetime.datetime.now()
+            
+        for model_name, model_spec in self.get_model_dict().items():
+            this_df = self.model_perf_inoutfull(model_name, model_spec)
+            res_df = pd.concat([res_df, this_df])
+
+        if time_builds:
+            elapsed_time = datetime.datetime.now() - start_time
+
+        if print_results and time_builds:
+            display(print("{}\n\nTOTAL Execution time: {}".format(res_df.sort_values(
+                                        "mape_full"), elapsed_time)))
+        elif print_results:
+            display(res_df.sort_values("mape_full"))
+            
+        elif time_builds:
+            print("TOTAL Execution time: {}".format(elapsed_time))
+
+        if return_results:
+            return res_df
 
     
     # @TODO def get_model_graphs(self, ) -> None: """ Get graphs of model performance in-sample/out-of-sample/full sample """
 
 
-    def get_profile_ts(self):
+    def get_profile_ts(self, auto_models: bool=True):
         """Get Profile TS
 
         Run a logical sequence of TS Tell methods to profile the Time Series
+
+        Parameters
+        ----------
+        auto_models : bool default True
+            Whether or not to automatically fit pre-specified models
 
         #try:
         #    self.get_trend_test()
@@ -1137,6 +1285,10 @@ class TS_Tell():
         #            f"The message was as follows:\n\t- `{e}`\n\n")
         
         """
+        import datetime
+    
+        start_time = datetime.datetime.now()
+        
         self.get_sample_facts()
         print()
         self.get_autocorr_plots()
@@ -1164,3 +1316,9 @@ class TS_Tell():
         print()
         self.get_traintest_plot()
         print()
+        if auto_models:
+            self.get_auto_models()
+            print()
+        
+        elapsed_time = datetime.datetime.now() - start_time
+        print("TOTAL PROFILE TIME: {}".format(elapsed_time))
