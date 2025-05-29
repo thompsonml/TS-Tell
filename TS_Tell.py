@@ -704,11 +704,15 @@ class TS_Tell():
             return df
 
 
-    def get_lag_tests(self, sig_pval: float=0.05) -> pd.Series:
+    def get_lag_tests(self, 
+                      n_lags: int=self.season_length,
+                      sig_pval: float=0.05) -> pd.Series:
         """Get lag test
 
         Parameters
         ----------
+        n_lags : int default self.season_length
+            The number of single (not cumulative) lags to test
         sig_pval : float default 0.05
             The p-value about which significance is determined
 
@@ -719,7 +723,7 @@ class TS_Tell():
         """
         df = self.get_trend_dataframe()
         lag_dict = {}
-        for i in range(1, self.season_length + 1):
+        for i in range(1, n_lags + 1):
             ols = sm.OLS.from_formula('y ~ y.shift(' + str(i) + ')', df).fit()
             lag_dict[i] = ols.pvalues[1:].item()
         lag_sig_dict = {key: value for key, value in lag_dict.items() if 
@@ -941,9 +945,9 @@ class TS_Tell():
         Ideally, any signal value(s) found in the Periodogram will be *near* in 
         proximity to a point(s) determined via Welch's method. For instance, if
         using monthly data the Periodogram found a point x=11.95 hopefully the
-        value found by Welch's method would also be in the range [11.5, 12, 4].
-        These are floating point values, so--rounding--this could be evidence
-        for x=12 or annual seasonality.
+        value found by Welch's method would also be in the range [11.5, 12.4].
+        These are floating point values, and therefore rounding occurs. In this
+        case, since x=12 we would infer annual seasonality.
         
         The best case is they both find similar (or no) values. Disagreement, 
         however, would most likely indicate either more complex underlying
