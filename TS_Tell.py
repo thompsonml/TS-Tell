@@ -1,7 +1,9 @@
+# sys 
+import datetime
+
 # suppress KNOWN warnings
 import warnings
 from statsmodels.tools.sm_exceptions import InterpolationWarning
-
 warnings.simplefilter('ignore', InterpolationWarning)
 
 # typing
@@ -17,7 +19,6 @@ from scipy.signal import periodogram
 from scipy.signal import welch
 from scipy.signal import savgol_filter
 from whittaker_eilers import WhittakerSmoother
-
 
 # graphics
 from matplotlib import pyplot as plt
@@ -173,10 +174,10 @@ class TS_Tell():
                                                self.season_length),
          "SFAutoTBATS": StatsForecastAutoTBATS(seasonal_periods=
                                                self.season_length),
-         "NaiveLast": NaiveForecaster(strategy="last", sp=self.season_length),
-         "NaiveMean": NaiveForecaster(strategy="mean", sp=self.season_length),
          "Prophet": Prophet(add_country_holidays={'country_name': 'US'}, 
-                            daily_seasonality=False)
+                            daily_seasonality=False),
+         "NaiveLast": NaiveForecaster(strategy="last"),
+         "NaiveMean": NaiveForecaster(strategy="mean"),
         }
         return model_dict
                 
@@ -1145,12 +1146,11 @@ class TS_Tell():
 
 
     def model_perf_inoutfull(self, 
-                             model_name: str, 
-                             model_spec) -> pd.DataFrame:
-        """Model performance in/out/full
-
-        Specifically on the In-Sample (Train), Out-of-Sample (Test),
-        and the Full input time series
+                             model_name: str,
+                             model_spec,
+                             print_graphs: bool=True,
+                             return_df: bool=False) -> Optional[pd.DataFrame]:
+        """Model performance In-Sample/Out-of-Sample/Full time series
     
         Parameters
         ----------
@@ -1158,6 +1158,10 @@ class TS_Tell():
             The name of the model
         model_spec
             The model-specific specifications for a specific model
+        print_graphs : bool default True
+            Whether or not print the graphs
+        return_df : bool default False
+            Whether or not to return the dataframe entry
     
         Returns
         -------
@@ -1169,103 +1173,156 @@ class TS_Tell():
             The MAPE of the out-of-sample Test set
         mape_full : float
             The MAPE of the full input time series passed
+        model_spec : str
+            The specification of the model
     
         """
     
-        import warnings
-        warnings.filterwarnings('ignore')
+        df_cols = ["mape_train", "mape_test", "mape_full", "model_spec"]
+        mape_df = pd.DataFrame(columns=df_cols)
+        mape_df.index.name = "Model"
         
         y_train, y_test = self.get_train_test()
         y = pd.concat([y_train, y_test])
+    
         model = model_spec
         model.fit(y_train)
-        mapes = []
         
-        for model_window in [y_train, y_test, y]:
-            if "Naive" in model_name:
-                fh = [x for x in range(len(model_window))]
-            else:
-                fh = ForecastingHorizon(model_window.index, is_relative=False)
-            try:
-                pred = model.predict(fh)
-                mape = mean_absolute_percentage_error(model_window, pred) * 100
-                mapes.append(mape)
-            except:
-                print(f"The {model_name} could not be fit.")
-                pass
-    
-        mape_names = ["mape_train", "mape_test", "mape_full"]
-        res_df = pd.DataFrame(data=[mapes], columns=mape_names)
+        # in-sample (train) forecasting
+        fh = ForecastingHorizon(y_train.index)
+        pred_train = model.predict(fh)
+        mape_train = mean_absolute_percentage_error(y_train, pred_train) * 100
+        mape_df.at[model_name, "mape_train"] = mape_train
         
-        res_df.index = [model_name]
-        res_df.index.name = "model"
+        # out-of-sample (test) forecasting
+        fh = ForecastingHorizon(y_test.index)
+        pred_test = model.predict(fh)
+        mape_test = mean_absolute_percentage_error(y_test, pred_test) * 100
+        mape_df.at[model_name, "mape_test"] = mape_test
+        
+        # Full sample forecasting
+        fh = ForecastingHorizon(y.index)
+        pred_full = model.predict(fh)
+        mape_full = mean_absolute_percentage_error(y, pred_full) * 100
+        mape_df.at[model_name, "mape_full"] = mape_full
     
-        return res_df
+        mape_df.at[model_name, "model_spec"] = str(model_spec)
+    
+        if print_graphs:
+            fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
+            plt.title("{} Test (Out-of-Sample) MAPE: {:0.1f}%".format(model_name, mape_test), fontsize=16)
+            styling = {"marker": 'o', "alpha": 0.8}
+            ax = y_test.plot(**styling, label="test")
+            ax = pred_test.plot(**styling, label="pred_test")
+            xmin, xmax = ax.get_xlim()
+            xmin = xmin - 1
+            xmax = xmax + 1
+            ax.set_xlim(xmin, xmax)
+            plt.legend()
+            plt.show()
+            
+            fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
+            plt.title("{} Train (In-Sample) MAPE: {:0.1f}%".format(model_name, mape_train), fontsize=16)
+            styling = {"marker": 'o', "alpha": 0.8}
+            ax = y_train.plot(**styling, label="train")
+            ax = pred_train.plot(**styling, label="pred_train")
+            xmin, xmax = ax.get_xlim()
+            xmin = xmin - 1
+            xmax = xmax + 1
+            ax.set_xlim(xmin, xmax)
+            plt.legend()
+            plt.show()
+            
+            fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
+            plt.title("{} Full (Train + Test) MAPE: {:0.1f}%".format(model_name, mape_full), fontsize=16)
+            styling = {"marker": 'o', "alpha": 0.8}
+            ax = y_train.plot(**styling, label="train")
+            ax = pred_train.plot(**styling, label="pred_train")
+            ax = y_test.plot(**styling, label="test")
+            ax = pred_test.plot(**styling, label="pred_test")
+            xmin, xmax = ax.get_xlim()
+            xmin = xmin - 1
+            xmax = xmax + 1
+            ax.set_xlim(xmin, xmax)
+            plt.legend()
+            plt.show()
+
+        if return_df:
+            return mape_df
 
         
-    def get_auto_models(self,
-                        time_builds: bool=False,
+    def get_auto_models(self, 
+                        eval_method: str="InOutFull",
                         print_results: bool=True,
-                        return_results: bool=False) -> Optional[pd.DataFrame]: 
-        """ Get automatic models
+                        return_results: bool=True) -> Optional[pd.DataFrame]: 
+            """ Get automatic models
 
-        Parameters
-        ----------
-        time_builds : bool default False
-            Whether or not to time the model builds
-        print_results : bool default True
-            Whether or not to print the results
-        return_results : bool defaul False
-            Whether or not to return the resultant pd.DataFrame
-
-        Returns
-        -------
-        index : str
-            Name of the model
-        mape_train : float
-            The MAPE of the in-sample Train set
-        mape_test : float
-            The MAPE of the out-of-sample Test set
-        mape_full : float
-            The MAPE of the full input time series passed        
-        
-        """
-
-        import warnings
-        import datetime
-
-        # Ignore all warnings
-        warnings.filterwarnings("ignore")
-        warnings.filterwarnings("ignore", category=FutureWarning)
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
-        
-        res_df = pd.DataFrame(columns=["mape_train", "mape_test", "mape_full"])
-
-        if time_builds:
-            start_time = datetime.datetime.now()
-            
-        for model_name, model_spec in self.get_models_dict().items():
-            this_df = self.model_perf_inoutfull(model_name, model_spec)
-            res_df = pd.concat([res_df, this_df])
-
-        if time_builds:
-            elapsed_time = datetime.datetime.now() - start_time
-
-        if print_results and time_builds:
-            display(print("{}\n\nTOTAL Execution time: {}".format(res_df.sort_values(
-                                        "mape_full"), elapsed_time)))
-        elif print_results:
-            display(res_df.sort_values("mape_full"))
-            
-        elif time_builds:
-            print("TOTAL Execution time: {}".format(elapsed_time))
-
-        if return_results:
-            return res_df
-
+            *** 
     
-    # @TODO def get_model_graphs(self, ) -> None: """ Get graphs of model performance in-sample/out-of-sample/full sample """
+            Parameters
+            ----------
+            eval_method : str {def:"InOutFull", "SlidingWindow", "ExpandingWindow"}
+                Which model evaluation method to use
+                @TODO - build Sliding Windows, Expanding Windows
+            print_results : bool default True
+                Whether or not to print the results
+            return_results : bool default True
+                Whether or not to return the resultant pd.DataFrame
+            *** NOTE: If both `print_results` and `return_results` are True and the 
+                output is not assigned, an additional print out of the pd.DataFrame
+                will occur
+    
+            Returns
+            -------
+            index : str
+                Name of the model
+            model_spec : str
+                The specification of the model
+            mape_train : float
+                The MAPE of the in-sample Train set
+            mape_test : float
+                The MAPE of the out-of-sample Test set
+            mape_full : float
+                The MAPE of the full input time series passed        
 
+            """
+    
+            import datetime
+            
+            df_cols = ["model_spec", "mape_train", "mape_test", "mape_full"]
+            res_df = pd.DataFrame(columns=df_cols)
+    
+            start_time = datetime.datetime.now()
+
+            for model_name, model_spec in self.get_models_dict().items():
+                if eval_method=="InOutFull":
+                    this_df = self.model_perf_inoutfull(model_name, 
+                                                        model_spec, 
+                                                        print_graphs=False,
+                                                        return_df=True)
+                    if model_name=="AutoARIMA":
+                        res_df = this_df
+                    else:
+                        res_df = pd.concat([res_df, this_df])
+                elif eval_method=="SlidingWindow":
+                    pass
+                    # @TODO Dev
+                elif eval_method=="ExpandingWindow":
+                    pass
+                    # @TODO Dev
+                else:
+                    continue
+    
+            elapsed_time = datetime.datetime.now() - start_time
+    
+            if print_results:
+                display(res_df.sort_values("mape_test"))
+
+            print("\nTOTAL Auto Modeling Execution time: {}".format(elapsed_time))
+    
+            if return_results:
+                return res_df
+            
 
     def get_profile_ts(self, auto_models: bool=True):
         """Get Profile TS
