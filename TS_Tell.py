@@ -106,7 +106,7 @@ class TS_Tell():
         """Private method to get the frequency of the input time series
         
         """
-        self.data_freq = pd.infer_freq(self.input_ts.index)[:1]
+        self.data_freq = pd.infer_freq(self.input_ts.index)
         return self.data_freq
 
     
@@ -119,13 +119,13 @@ class TS_Tell():
             - P. 8, first paragraph
         """
         hp_lambda_dict = {'A': 1600/4**4,
-                          "6M": 100,
+                          "6": 100,
                           'Q': 1600,
                           'M': 1600 * 3**4, 
                           'W': 1600 * 12**4,
                           'D': 1600 * (365/4)**4,
                          }
-        hp_lambda = hp_lambda_dict[self._get_data_freq()]
+        hp_lambda = hp_lambda_dict[self._get_data_freq()[:1]]
         return hp_lambda
 
     
@@ -239,7 +239,9 @@ class TS_Tell():
         return df
         
 
-    def get_stationarity_tests(self) -> tuple:
+#    def get_stationarity_tests(self) -> tuple:
+    def get_stationarity_tests(self,
+                               input_ts: pd.Series=None) -> tuple:        
         """Get stationarity tests to examine for presence of a unit root
 
         Notes
@@ -258,11 +260,13 @@ class TS_Tell():
         [1] https://www.google.com/search?q=augmented+dickey+full+vs+kpss+vs+phillips-perone+in+python&client=ubuntu-chr&hs=YKR&sca_esv=a7528baf20b27cbb&sxsrf=AHTn8zprgoczwz8YQCAMbyiRqxMw3TitcQ%3A1744806711117&ei=N6P_Z-vwBofT5NoPuuqdgQU&ved=0ahUKEwir6N7Bx9yMAxWHKVkFHTp1J1AQ4dUDCBA&uact=5&oq=augmented+dickey+full+vs+kpss+vs+phillips-perone+in+python&gs_lp=Egxnd3Mtd2l6LXNlcnAiOmF1Z21lbnRlZCBkaWNrZXkgZnVsbCB2cyBrcHNzIHZzIHBoaWxsaXBzLXBlcm9uZSBpbiBweXRob24yCBAAGIAEGKIEMgUQABjvBTIIEAAYogQYiQVIjihQnwRY4yRwAXgBkAEBmAGsAaAB-RGqAQQ4LjE0uAEDyAEA-AEBmAIDoAKRAsICChAAGLADGNYEGEfCAgQQIRgKmAMA4gMFEgExIECIBgGQBgiSBwMxLjKgB5orsgcDMC4yuAf9AQ&sclient=gws-wiz-serp
         
         """
-        adf_test = adfuller(self.input_ts)
-        kpss_test = kpss(self.input_ts)
-        pp_test = PhillipsPerron(self.input_ts)
+        if input_ts==None:
+            input_ts=self.input_ts
+        adf_test = adfuller(input_ts)
+        kpss_test = kpss(input_ts)
+        pp_test = PhillipsPerron(input_ts)
 
-        d_input_ts = self.input_ts.diff()
+        d_input_ts = input_ts.diff()
         #d_input_ts = d_input_ts.fillna(d_input_ts.mean())
 
         d_adf_test = adfuller(d_input_ts.dropna())
@@ -286,7 +290,11 @@ class TS_Tell():
             [1] The second element is the input series raised to that power
                         
         """
-        series, _lambda = yeojohnson(self.input_ts)
+        if self.input_ts.isna().sum() > 0:
+            time_series = self.input_ts.fillna(self.input_ts.mean())
+        else:
+            time_series = self.input_ts
+        series, _lambda = yeojohnson(time_series)
         series_yj = pd.Series(series, name="yj")
         series_yj.index = self.input_ts.index
         return (series_yj, _lambda)
@@ -446,7 +454,7 @@ class TS_Tell():
     def get_autocorr_plots(self) -> None:
         """Get AutoCorr Plots
         
-        Get the combo plots: Time Series, PACF, and ACF
+        Get the combo plots: Time Series, PACF, and AC
 
         Notes
         -----
@@ -487,13 +495,13 @@ class TS_Tell():
         ax2 = fig.add_subplot(2, 2, 3)
         ax2.set_xlabel("Lag / AR Term")
         ax2.grid()
-        sm.graphics.tsa.plot_pacf(self.input_ts.values.squeeze(), lags=40, ax=ax2)
+        sm.graphics.tsa.plot_pacf(self.input_ts.values.squeeze(), lags=9, ax=ax2)
         
         # ACF
         ax3 = fig.add_subplot(2, 2, 4)
         ax3.set_xlabel("Lag / MA Term")
         ax3.grid()
-        sm.graphics.tsa.plot_acf(self.input_ts.values.squeeze(), lags=40, ax=ax3)
+        sm.graphics.tsa.plot_acf(self.input_ts.values.squeeze(), lags=9, ax=ax3)
         
         plt.tight_layout()
         plt.show()
@@ -703,11 +711,14 @@ class TS_Tell():
         if return_results:
             return df
 
-
+    
     def get_lag_tests(self, 
-                      n_lags: int=self.season_length,
+                      n_lags: int=None,
                       sig_pval: float=0.05) -> pd.Series:
-        """Get lag test
+        """Get lag tests
+
+        Test whether any lag--from 1 up to the value of `season_length`--is 
+        statistically significant in modeling the input time seres.
 
         Parameters
         ----------
@@ -716,11 +727,20 @@ class TS_Tell():
         sig_pval : float default 0.05
             The p-value about which significance is determined
 
+        Returns
+        -------
+        p_value : float
+            The p-value at the index value which represents the lag
+
         Notes
         -----
+        Prints a message if there are no statistically significant lags
+        
         @TODO
         
         """
+        if n_lags==None:
+            n_lags = self.season_length
         df = self.get_trend_dataframe()
         lag_dict = {}
         for i in range(1, n_lags + 1):
@@ -737,8 +757,8 @@ class TS_Tell():
                     "Lags detected. ***")
         else:
             return lag_series
-
     
+
     def get_trend_test(self, 
                        sig_pval: float=0.05, 
                        print_messages: bool=True) -> None:
@@ -765,9 +785,12 @@ class TS_Tell():
             tn = n
             
         This is regressed against the input time series ('y'): therefore, if it
-        is significant, then there is evidence of Trend in y.
-
-        The residuals from this regression now represent the input time series,
+        is significant, then there is evidence of Trend in y. This method works
+        for a fairly monotically increasing (or decreasing) Trend. The Trend 
+        does not have to be `perfectly` monotonic, but--as a linear test--it
+        must not vacillate.
+        
+        The residuals from this regression now represent the input time series
         "de-trended."
         
         """
@@ -781,8 +804,8 @@ class TS_Tell():
             print("- With a p-value of {:0.4f}, there ".format(
                 linear_trend_pval), end='')
             trend_msg = np.where(linear_trend_pval >= sig_pval, 
-                                 "is *NOT ENOUGH* evidence for a linear trend", 
-                                 "*APPEARS* to be evidence for a linear trend")
+                            "is *INSUFFICIENT* evidence for a linear trend", 
+                            "*APPEARS* to be evidence for a linear trend")
             print("{}".format(trend_msg))
 
 
@@ -809,7 +832,7 @@ class TS_Tell():
                                                    fontsize=11)
         plt.grid()
         plt.show()
-
+    
 
     def get_nltrend_test(self, 
                          third_order: bool=False,
