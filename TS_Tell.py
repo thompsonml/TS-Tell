@@ -13,6 +13,7 @@ from typing import Optional, Tuple
 # data analysis
 import pandas as pd
 import numpy as np
+from scipy import stats
 from scipy.stats import yeojohnson
 from pandas.plotting import autocorrelation_plot
 from scipy.signal import periodogram
@@ -51,6 +52,7 @@ from sktime.forecasting.base import ForecastingHorizon
 
 class TS_Tell():
     def __init__(self, 
+                 ts_name: str,
                  input_ts: pd.Series, 
                  season_length: int=52
                 ):
@@ -58,6 +60,8 @@ class TS_Tell():
 
         Parameters
         ----------        
+        ts_name : str
+            The name given to the time series
         input_ts : pd.Series, float
             The input time series - Index should be `DatetimeIndex` (see Notes)
         season_length : int, default 52
@@ -79,6 +83,7 @@ class TS_Tell():
             If the index is not a DatetimeIndex and cannot be converted to one
         
         """
+        self.ts_name = ts_name
         self.input_ts = input_ts
         self.season_length = season_length
 
@@ -355,7 +360,8 @@ class TS_Tell():
             
         """
         if print_messages:
-            print("\n##### {:^17} #####".format("SAMPLE FACTS"))
+            print("\n##### {:^17} #####\n{:^29}".format("SAMPLE FACTS",
+                                                       self.ts_name))
         n_miss = self.input_ts.isnull().sum()
         max = self.input_ts.max()
         min = self.input_ts.min()
@@ -430,16 +436,16 @@ class TS_Tell():
 
         Notes
         -----
-        Utilizes bi-directional interpolation to fill in missing data
-        points. Since time series are temporal (i.e., adjacent values are
-        more correlated / alike than non-adjacent values), a typical 
-        `random` imputation will miss this nuance.
+        Utilizes quadratic interpolation to fill in missing data points. Since
+        Since time series data are temporal (i.e., adjacent values are more 
+        alike than non-adjacent values), a typical random imputation will miss 
+        this nuance.
 
         """
         df = pd.DataFrame(self.input_ts)
         df.columns = ['y']
         df["missing"] = np.where(df['y'].isnull()==True, 1, 0)
-        df['y'] = df['y'].interpolate(limit_direction="both")
+        df['y'] = df['y'].interpolate(method="quadratic")
 
         if print_graph:
             ax = df['y'].plot(alpha=0.75, label="Input Time Series")
@@ -484,22 +490,33 @@ class TS_Tell():
         [2] https://people.duke.edu/~rnau/Mathematical_structure_of_ARIMA_models--Robert_Nau.pdf
         
         """    
-        fig = plt.figure(figsize=(13, 5))
+        y = self.input_ts
+        x = list(range(len(y)))
+
+        slope, intercept, r_value, p_value, _ = stats.linregress(x, y)
+        yhat = pd.Series([intercept + slope * val for val in x])
         
+        reg_df = pd.DataFrame(y)
+        reg_df["yhat"] = [intercept + slope * val for val in x]
+        
+        fig = plt.figure(figsize=(13, 5))
+
+        fig.suptitle("Input Time Series")
         ax1 = fig.add_subplot(2, 1, 1)
-        ax1.set_title("Input Time Series")
+        ax1.set_title("$R^2$={: 0.1f}  p-value: {: 0.4f}".format(r_value*100, p_value))
+        ax1.plot(reg_df.index, y, marker='o', markersize=3)
+        ax1.plot(reg_df.index, reg_df["yhat"], c='orange', ls='--')
         ax1.grid()
-        ax1.plot(self.input_ts, marker='o', markersize=3)
         
         # PACF
         ax2 = fig.add_subplot(2, 2, 3)
-        ax2.set_xlabel("Lag / AR Term")
+        ax2.set_xlabel("AR Term Lag")
         ax2.grid()
         sm.graphics.tsa.plot_pacf(self.input_ts.values.squeeze(), lags=9, ax=ax2)
         
         # ACF
         ax3 = fig.add_subplot(2, 2, 4)
-        ax3.set_xlabel("Lag / MA Term")
+        ax3.set_xlabel("MA Term Lag")
         ax3.grid()
         sm.graphics.tsa.plot_acf(self.input_ts.values.squeeze(), lags=9, ax=ax3)
         
@@ -656,13 +673,14 @@ class TS_Tell():
         """
         df = self.get_trend_dataframe()
         df["std_roll"] = df["y"].rolling(std_points).std()
-        df["std_roll"] = df["std_roll"].interpolate(limit_direction="both")
+        df["std_roll"] = df["std_roll"].fillna(df["std_roll"].mean())
         df['z'] = (df['y'] - df['y'].mean()) / df['y'].std()
 
         if smoother=="WE":
             df["smooth_ts"] = WhittakerSmoother(self.season_length, 
                                                 smooth_order, 
-                                                self.n_obs).smooth(self.input_ts)
+                                                self.n_obs).smooth(
+                                                    self.input_ts)
             smooth_kind = "Whittaker-Eilters"
         elif smoother=="SG":
             df["smooth_ts"] = savgol_filter(self.input_ts, 
@@ -670,7 +688,9 @@ class TS_Tell():
                                             smooth_order)
             smooth_kind = "Savitsky-Golay"
         elif smoother=="HMA":
-            df["smooth_ts"] = self._get_HMA(self.input_ts, int(self.season_length / 2))
+
+            df["smooth_ts"] = self._get_HMA(self.input_ts, 
+                                            int(self.season_length / 2))
             smooth_kind = "HMA"
         else:
             raise ValueError("The type of smoother passed must be either "
@@ -699,9 +719,10 @@ class TS_Tell():
                             label=f"Hi Bound + {extrema_std}$\sigma$")
         df["lo_bound"].plot(**styling, 
                             label=f"Lo Bound - {extrema_std}$\sigma$")
-        plt.axhline(y=critical_z, color='r', linestyle='--', alpha=0.5, 
-                    label="Critical Z Value")
-        plt.axhline(y=-critical_z, color='r', linestyle='--', alpha=0.5)
+        #Comment out the Critical Z thesh - must print out Z to work
+        #plt.axhline(y=critical_z, color='r', linestyle='--', alpha=0.5, 
+        #            label="Critical Z Value")
+        #plt.axhline(y=-critical_z, color='r', linestyle='--', alpha=0.5)
         plt.suptitle("Curve Shape and Possible Extrema", fontsize=11)
         plt.title(f"Critical Z: {critical_z}", fontsize=9)
         plt.legend(fontsize=8, ncol=5)
@@ -1134,11 +1155,19 @@ class TS_Tell():
         return train, test
 
 
-    def get_traintest_plot(self):
+    def get_traintest_plot(self, train_pct_or_n: float=None):
         """Get a plot of Train + Test
 
+        Parameters
+        ----------
+        train_pct_or_n : float default None
+            W
+
         """
-        train, test = self.get_train_test()
+        if train_pct_or_n != None:
+            train, test = self.get_train_test(train_pct_or_n)
+        else:
+            train, test = self.get_train_test()
         fig, ax = plot_series(train, test, labels=["train", "test"])
         ax.grid()
         plt.show()
@@ -1281,7 +1310,7 @@ class TS_Tell():
     def get_auto_models(self, 
                         eval_method: str="InOutFull",
                         print_results: bool=True,
-                        return_results: bool=True) -> Optional[pd.DataFrame]: 
+                        return_results: bool=False) -> Optional[pd.DataFrame]: 
             """ Get automatic models
 
             *** 
@@ -1293,7 +1322,7 @@ class TS_Tell():
                 @TODO - build Sliding Windows, Expanding Windows
             print_results : bool default True
                 Whether or not to print the results
-            return_results : bool default True
+            return_results : bool default False
                 Whether or not to return the resultant pd.DataFrame
             *** NOTE: If both `print_results` and `return_results` are True and the 
                 output is not assigned, an additional print out of the pd.DataFrame
@@ -1351,6 +1380,24 @@ class TS_Tell():
                 return res_df
             
 
+    def get_profile_brief(self):
+        """Get Profile brief
+
+        Run a brief, critical few methods to profile the Time Series
+
+        """
+        self.get_sample_facts()
+        print()
+        self.get_autocorr_plots()
+        print()
+        self.get_hist_box()
+        print()
+        self.get_smoothed_imputation()
+        print()
+        self.get_spectral_graphs()
+        print()
+
+        
     def get_profile_ts(self, auto_models: bool=True):
         """Get Profile TS
 
