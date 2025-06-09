@@ -1,5 +1,6 @@
 # sys 
 import datetime
+import calendar
 
 # suppress KNOWN warnings
 import warnings
@@ -15,6 +16,7 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 from scipy.stats import yeojohnson
+import scipy.signal
 from pandas.plotting import autocorrelation_plot
 from scipy.signal import periodogram
 from scipy.signal import welch
@@ -98,7 +100,7 @@ class TS_Tell():
         if not isinstance(self.input_ts.index, pd.DatetimeIndex):
             try:
                  self.input_ts.index = pd.to_datetime(self.input_ts.index)
-                 self.data_freq = pd.infer_freq(self.input_ts.index)[:1]
+                 self.data_freq = pd.infer_freq(self.input_ts.index)
             except:
                 raise ValueError("The index of the pd.Series should be a "
                     "DatetimeIndex. The conversion of the Index on the "
@@ -157,6 +159,15 @@ class TS_Tell():
         """
         return self._get_WMA(self._get_WMA(s, period // 2
                 ).multiply(2).sub(self._get_WMA(s, period)), int(np.sqrt(period)))
+
+
+    def set_input_ts(self, updated_ts):
+        """Set Input Time Series
+
+        Set the updated TS to `self.input_ts`
+
+        """
+        self.input_ts = updated_ts
 
 
     # PUBLIC methods
@@ -419,7 +430,8 @@ class TS_Tell():
             return sample_facts
 
 
-    def get_missing_imputation(self, print_graph: bool=True) -> pd.DataFrame:
+    def get_missing_imputation(self, 
+                               print_graph: bool=True) -> pd.DataFrame:
         """Get time series missing imputation
 
         Use this method when a value is missing to impute
@@ -443,12 +455,14 @@ class TS_Tell():
 
         """
         df = pd.DataFrame(self.input_ts)
-        df.columns = ['y']
+        df['y'] = df.iloc[:, 0:]
         df["missing"] = np.where(df['y'].isnull()==True, 1, 0)
-        df['y'] = df['y'].interpolate(method="quadratic")
+        df['y'] = df['y'].interpolate(method='polynomial', order=5,
+                                      limit_direction="both")
 
         if print_graph:
-            ax = df['y'].plot(alpha=0.75, label="Input Time Series")
+            plt.title(self.ts_name)
+            ax = df['y'].plot(alpha=0.75, marker='o')
             ax = df.query("missing==1")['y'].plot(ax=ax, marker='o', ls='', 
                                                   label="Imputed Value")
             plt.legend()
@@ -501,7 +515,7 @@ class TS_Tell():
         
         fig = plt.figure(figsize=(13, 5))
 
-        fig.suptitle("Input Time Series")
+        fig.suptitle(self.ts_name, fontsize=16)
         ax1 = fig.add_subplot(2, 1, 1)
         ax1.set_title("$R^2$={: 0.1f}  p-value: {: 0.4f}".format(r_value*100, p_value))
         ax1.plot(reg_df.index, y, marker='o', markersize=3)
@@ -565,6 +579,110 @@ class TS_Tell():
         plt.tight_layout()
         plt.show()
 
+
+    def get_timegrouped_plots(self, 
+                              kind: str="Both",
+                              quarters: bool=True) -> None:
+        """Get Time-Grouped Plots
+
+        Parameters
+        ----------
+        kind : string {"Box", "Swarm", "Both"} default "Box"
+        quarters : bool default True
+            Whether or not to group by Quarters (else Months)
+
+        Errors
+        ------
+        ValueError
+            Raised if the parameter `kind` is not passed one of the key words
+            
+        Notes
+        -----
+        This provides visual insight into time clumping, where values for some 
+        months or quarters tend to be around one another. As in, the Q1 values
+        tend to be lowest for the year, but all hover around a local average.
+        Similarly for months, as well.
+        """
+        allowed_list = ["Box", "Swarm", "Both"]
+        if kind not in allowed_list:
+            raise ValueError('The value for `kind` must be one of '
+                             '"Box", "Swarm", or "Both"')
+
+        trend_df = self.get_trend_dataframe(time_feats=True)
+        if quarters:    
+            time_group = "quarter"
+        else:
+            time_group = "month"
+        grouped = trend_df.groupby(time_group.lower())['y']
+
+        if kind=="Box":
+            fig, ax = plt.subplots(figsize=plt.figaspect(0.3), layout="tight")
+            ax.set_title(self.ts_name)
+            ax.boxplot(x=[group.values for name, group in grouped],
+                       tick_labels=grouped.groups.keys())
+            if quarters==False:
+                x_ticks = [calendar.month_name[i] for i in trend_df.month.unique()]
+                plt.xticks(x_ticks)
+            plt.xlabel(time_group.title())
+            plt.ylabel('')
+            plt.show()
+        elif kind=="Swarm":
+            fig, ax = plt.subplots(figsize=plt.figaspect(0.3), layout="tight")
+            ax.set_title("Swarm Plot")
+            ax.set_xlabel(time_group.title())
+            ax = sns.swarmplot(data=trend_df, 
+                                  x=time_group, 
+                                  y='y', 
+                                  hue="year", 
+                                  palette=sns.light_palette("seagreen", as_cmap=True),
+                                  #sns.light_palette("seagreen", as_cmap=True),
+                                  size=7)
+            for i, q in enumerate(trend_df[time_group].unique()):
+                ax.scatter(i, 
+                           trend_df.loc[(trend_df[time_group]==q)]['y'].mean(),
+                           color='r', 
+                           marker='s', 
+                           s=75)
+            if quarters==False:
+                x_ticks = [calendar.month_name[i] for i in trend_df.month.unique()]
+                plt.xticks(x_ticks)
+            plt.xlabel(time_group.title())
+            plt.ylabel('')
+            plt.grid()
+            plt.show()
+        else:
+            fig, ax = plt.subplots(1, 2, figsize=plt.figaspect(0.3), layout="tight")
+            plt.suptitle(self.ts_name)
+            plt.title("Time-Grouped Box Plot and Swarm Plot")
+            
+            ax[0].set_title("Box Plot")
+            ax[0].boxplot(x=[group.values for name, group in grouped],
+                       tick_labels=grouped.groups.keys())
+            ax[0].set_ylabel('')
+            ax[0].set_xlabel(time_group)
+            ax[0].grid()
+            
+            ax[1].set_title("Swarm Plot")
+            ax[1].set_xlabel(time_group.title())
+            ax[1] = sns.swarmplot(data=trend_df, 
+                                  x=time_group.lower(), 
+                                  y='y', 
+                                  hue="year", 
+                                  palette=sns.light_palette("seagreen", as_cmap=True),
+                                  #sns.light_palette("seagreen", as_cmap=True),
+                                  size=7)
+            for i, q in enumerate(trend_df[time_group].unique()):
+                ax[1].scatter(i, 
+                              trend_df.loc[(
+                                  trend_df[time_group]==q)]['y'].mean(),
+                              color='r', 
+                              marker='s', 
+                              s=75)
+            ax[1].set_yticks([])
+            ax[1].grid()
+            ax[1].set_ylabel('')
+            plt.show()
+                
 
     # @TODO get_outliers_autoencoder(self) -> Optional[pd.DataFrame]: """Get outliers via a Variational AutoEncoder """
     
@@ -716,9 +834,9 @@ class TS_Tell():
         styling = {"color": "peru", "ls": '--', "marker": 'o', 
                    "markersize": 1.5, "alpha": 0.3}
         df["hi_bound"].plot(**styling, 
-                            label=f"Hi Bound + {extrema_std}$\sigma$")
+                            label=f"Hi Bound + ({extrema_std}$\sigma$)")
         df["lo_bound"].plot(**styling, 
-                            label=f"Lo Bound - {extrema_std}$\sigma$")
+                            label=f"Lo Bound - ({extrema_std}$\sigma$)")
         #Comment out the Critical Z thesh - must print out Z to work
         #plt.axhline(y=critical_z, color='r', linestyle='--', alpha=0.5, 
         #            label="Critical Z Value")
@@ -1003,6 +1121,9 @@ class TS_Tell():
         [1] https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.welch.html
         
         """
+        warnings.filterwarnings("ignore", message="nperseg = \d+ is greater than "
+                                "input length = \d+, using nperseg = \d+")
+
         freq_p, psd_p = periodogram(self.input_ts, fs=self.season_length)
         spectral_df = pd.DataFrame({"freq": freq_p, "psd": psd_p})
         top_spectral = spectral_df.sort_values("psd", ascending=False)[:top_n]
@@ -1392,20 +1513,22 @@ class TS_Tell():
         print()
         self.get_hist_box()
         print()
+        self.get_timegrouped_plots()
+        print()
         self.get_smoothed_imputation()
         print()
         self.get_spectral_graphs()
         print()
 
         
-    def get_profile_ts(self, auto_models: bool=True):
-        """Get Profile TS
+    def get_profile_full(self, auto_models: bool=False):
+        """Get Profile Full
 
         Run a logical sequence of TS Tell methods to profile the Time Series
 
         Parameters
         ----------
-        auto_models : bool default True
+        auto_models : bool default False
             Whether or not to automatically fit pre-specified models
 
         #try:
@@ -1425,6 +1548,8 @@ class TS_Tell():
         self.get_autocorr_plots()
         print()
         self.get_hist_box()
+        print()
+        self.get_timegrouped_plots()
         print()
         self.get_smoothed_imputation()
         print()
