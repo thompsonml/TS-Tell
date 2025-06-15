@@ -159,8 +159,16 @@ class TS_Tell():
         """
         return self._get_WMA(self._get_WMA(s, period // 2
                 ).multiply(2).sub(self._get_WMA(s, period)), int(np.sqrt(period)))
+        
 
+    # PUBLIC methods
+    def get_input_ts(self):
+        """Get Input Time Series
 
+        """
+        return self.input_ts
+
+    
     def set_input_ts(self, updated_ts):
         """Set Input Time Series
 
@@ -168,9 +176,9 @@ class TS_Tell():
 
         """
         self.input_ts = updated_ts
+        print("The input time series has been updated.")
 
-
-    # PUBLIC methods
+    
     def get_models_dict(self):
         model_dict =  {"AutoARIMA": AutoARIMA(sp=self.season_length, 
                                               start_p=0, 
@@ -202,9 +210,9 @@ class TS_Tell():
                             time_feats: bool=False,
                             time_dummies: bool=False,
                             ) -> pd.DataFrame:
-        """Obtain a trend dataframe with option time features
+        """Get a Trend Dataframe with an option for time features
 
-        * NOTE: `time_dummies` cannot be True if `time_feats` is False
+        * NOTE: `time_dummies` cannot execute if `time_feats` is False
         
         Parameters
         ----------
@@ -690,35 +698,32 @@ class TS_Tell():
     def get_smoothed_imputation(self, 
                                 smoother: str="WE",
                                 smooth_order: int=3,
-                                std_points: int=4,
                                 extrema_std: int=3,
                                 critical_z: float=2.326,
-                                return_results: bool=False) -> Optional[pd.DataFrame]:
+                                return_df: bool=False) -> Optional[pd.DataFrame]:
         """Get a smoothed, imputed version of the input Time Series
 
         Use the parameters to create a smoother, imputed series to further
-        analyze and/or model.
+        analyze and/or model. Imputes missing values if any exist prior to
+        curve fitting.
                 
         Parameters
         ----------
-        smoother : str {"WE", "SG", "HMA"} default "WE"
+        smoother : str {"WE", "SG"} default "WE"
             The smoother to use, either Whittaker-Eilers ("WE") <default>
-            or Savitsky-Golay ("SG") or Hull's Moving Average ("HMA")
+            or Savitsky-Golay ("SG")
         smooth_order : int default 3
             The order (power) to raise the function for smoothing. For *most* 
             series, the default value (3) is a good starting value - much
             lower and you just get the original series and much higher results
-            in a approximates nearly a straight line            
-        std_points : int default 4
-            The number of consecutive data points used to contruct the moving
-            standard deviation
+            in a approximates nearly a straight line
         extrema_std : float default 4
             The std dev beyond which values may be extrema
         critical_z : float, default 2.326
             The Z-value to consider for extrema/outliers/anomolies (2.326 is 
             the top/bottom 1% - see Notes for some typical values or consult
             a Critical Z chart online / in a textbook
-        return_results : bool default False
+        return_df : bool default False
             Whether or not to return the results via a pd.DataFrame
 
         Returns
@@ -746,7 +751,6 @@ class TS_Tell():
             If the value passed to `smoother` is not:
                 - 'WE'
                 - 'SG'
-                - 'HMA'
             ..then a ValueError is raised
 
         Notes
@@ -786,68 +790,103 @@ class TS_Tell():
 
         @TODO
         -------
-        Examine https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html for applicability
+        Examine https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html 
+            for applicability
         
         """
         df = self.get_trend_dataframe()
-        df["std_roll"] = df["y"].rolling(std_points).std()
-        df["std_roll"] = df["std_roll"].fillna(df["std_roll"].mean())
-        df['z'] = (df['y'] - df['y'].mean()) / df['y'].std()
+        # impute any missings with 1 to ensure full series
+        df["y_mi"] = df['y'].fillna(1)
 
+        # smoother choice
         if smoother=="WE":
-            df["smooth_ts"] = WhittakerSmoother(self.season_length, 
-                                                smooth_order, 
-                                                self.n_obs).smooth(
-                                                    self.input_ts)
+            df["smoothed_ts"] = WhittakerSmoother(self.season_length, 
+                                                  smooth_order, 
+                                                  self.n_obs).smooth(
+                                                      df["y_mi"])
             smooth_kind = "Whittaker-Eilters"
         elif smoother=="SG":
-            df["smooth_ts"] = savgol_filter(self.input_ts, 
-                                            self.season_length, 
-                                            smooth_order)
+            df["smoothed_ts"] = savgol_filter(df["y_mi"], 
+                                              self.season_length, 
+                                              smooth_order)
             smooth_kind = "Savitsky-Golay"
-        elif smoother=="HMA":
-
-            df["smooth_ts"] = self._get_HMA(self.input_ts, 
-                                            int(self.season_length / 2))
-            smooth_kind = "HMA"
         else:
-            raise ValueError("The type of smoother passed must be either "
-                    "``WE`` or ``SG`` or ``HMA``")
-            
-        df["hi_bound"] = df["smooth_ts"] + df["smooth_ts"].std() * extrema_std
-        df["lo_bound"] = df["smooth_ts"] - df["smooth_ts"].std() * extrema_std
+            raise ValueError("The type of smoother passed must be one of "
+                    "``WE`` or ``SG``")
 
-        df["examine"] = np.where(abs(df['z']) > critical_z, 1, 0)
+        # calc the upper and lower bounds of the smoothed time series
+        df["hi_bound"] = df["smoothed_ts"]+df["smoothed_ts"].std()*extrema_std
+        df["lo_bound"] = df["smoothed_ts"]-df["smoothed_ts"].std()*extrema_std
 
-        df["imp"] = np.where(
-            ((df["examine"]==1) & (df['y'] > 0)) & (df['hi_bound'] < df['y']), 
-            df["hi_bound"],
-            np.where(
-                (df["examine"]==1) & (df['y'] < 0) & (df['lo_bound'] > df['y']), 
-                df["lo_bound"],
-                df['y']
-            )
-        )
+        # add some random variation to the smoother
+        df["random_var"] = np.random.normal(loc=0, 
+                                            scale=df["y_mi"].std()/3, 
+                                            size=len(df))
+        df["smoothed_ts_random_var"] = df["smoothed_ts"] + df["random_var"]
 
-        df['y'].plot(figsize=(13, 5), alpha=0.6, label="Input Series")
-        df["smooth_ts"].plot(c='g', label=smooth_kind)
+        # impute using the smoothed time series with some random variation
+        df["y_imp"] = df['y'].fillna(df["smoothed_ts_random_var"])
+
+        # pull outliers back to smoothed ts bound IFF above/below bounds
+        df["y_imp_out_smooth"] = np.where(df["y_imp"] > df["hi_bound"], 
+                                          df["hi_bound"],
+                                          np.where(df["y_imp"]<df["lo_bound"], 
+                                                   df["lo_bound"], 
+                                                   df["y_imp"]
+                                                   )
+                                          )
+        
+        df["outlier_smooth"] = np.where(df["y_imp_out_smooth"] != df["y_imp"],
+                                        1, 0)
+        
+        # pull outliers back to smoothed ts bound IFF > standardized (z) value
+        df['z'] = (df["y_imp"] - df["y_imp"].mean()) / df["y_imp"].std()
+        df["y_imp_out_z"] = np.where((abs(df['z']>critical_z)) & 
+                                         (df['hi_bound'] < df['y_imp']), 
+                                      df["hi_bound"],
+                                      np.where((abs(df['z']>critical_z)) &
+                                                   (df['lo_bound'] > df['y_imp']), 
+                                                df["lo_bound"],
+                                                df['y_imp']
+                                                )
+                                     )        
+        df["outlier_z"] = np.where(df["y_imp_out_z"] != df["y_imp"], 1, 0)
+
+
+        # GRAPHING
+        fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
+        ax = df['y'].plot(alpha=0.8, marker='o')
+        if df['y'].isnull().sum() > 0:
+            ax = df.query("y.isnull()==True")["y_imp"].plot(ax=ax, marker='o', 
+                                                    ls='', label="Imputed Value")
+        df["smoothed_ts"].plot(ax=ax, c='g', label=smooth_kind)
         styling = {"color": "peru", "ls": '--', "marker": 'o', 
                    "markersize": 1.5, "alpha": 0.3}
         df["hi_bound"].plot(**styling, 
                             label=f"Hi Bound + ({extrema_std}$\sigma$)")
         df["lo_bound"].plot(**styling, 
                             label=f"Lo Bound - ({extrema_std}$\sigma$)")
+        if df["outlier_smooth"].sum() > 0:
+            ax = df.query("outlier_smooth.eq(1)")["y_imp_out_smooth"].plot(
+                    ax=ax, marker='P', c='peru', ls='', label="Smoothed Outlier"
+            )
+        if df["outlier_z"].sum() > 0:
+            ax = df.query("outlier_z.eq(1)")["y"].plot(
+                    ax = ax, ls='', label="Z-Outlier", marker='o', mfc='none',
+                    mec='r', ms=16
+            )
+            
         #Comment out the Critical Z thesh - must print out Z to work
         #plt.axhline(y=critical_z, color='r', linestyle='--', alpha=0.5, 
         #            label="Critical Z Value")
         #plt.axhline(y=-critical_z, color='r', linestyle='--', alpha=0.5)
-        plt.suptitle("Curve Shape and Possible Extrema", fontsize=11)
-        plt.title(f"Critical Z: {critical_z}", fontsize=9)
+        plt.suptitle("Curve Shape, Imputation, and Possible Extrema", fontsize=11)
+        #plt.title(f"Critical Z: {critical_z}", fontsize=9)
         plt.legend(fontsize=8, ncol=5)
         plt.grid()
         plt.show()
 
-        if return_results:
+        if return_df:
             return df
 
     
