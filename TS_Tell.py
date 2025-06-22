@@ -176,7 +176,7 @@ class TS_Tell():
 
         """
         self.input_ts = updated_ts
-        print("The input time series has been updated.")
+        print("The input time series has been updated.\n")
 
     
     def get_models_dict(self):
@@ -963,13 +963,16 @@ class TS_Tell():
             tn = n
             
         This is regressed against the input time series ('y'): therefore, if it
-        is significant, then there is evidence of Trend in y. This method works
+        is significant, then there is evidence* of Trend in y. This method works
         for a fairly monotically increasing (or decreasing) Trend. The Trend 
         does not have to be `perfectly` monotonic, but--as a linear test--it
         must not vacillate.
         
         The residuals from this regression now represent the input time series
         "de-trended."
+
+        * - this regresses time alone, meaning an insignificant finding here
+        does mean `t` will also be insufficient if regressed other covariates.
         
         """
         print("### LINEAR TREND TEST ###")
@@ -1271,14 +1274,20 @@ class TS_Tell():
         autocorrelation_plot(self.input_ts.tolist())
 
 
-    def get_train_test(self, train_pct_or_n: float=0.95) -> Tuple:
-        """Get Train/Test split Plot
+    def get_train_test(self, 
+                       train_test_pct_or_n: float=0.95,
+                       show_graph: bool=False) -> Tuple:
+        """Get Train/Test split
 
         Parameters
         ----------
-        train_pct_or_n : float default 0.95
+        train_test_pct_or_n : float default 0.95
             The pct or n to apply to the Train set. If [0, 1], then treated as
-            a percentage. If > 1, then treated as N.
+            a percentage and if < 50% then treated as Test. If > 1, then 
+            treated as N. Same applies to N - if the int passed is < 50% of
+            the observations, the treated as test.
+        show_graph : bool default False
+            Whether or not to graph the Train/Test split
 
         Returns
         -------
@@ -1287,8 +1296,8 @@ class TS_Tell():
         Raises
         ------
         ValueError
-            If the value passed for `train_pct_or_n` is equal to 1 or less than
-            or equal to 0
+            If the value passed for `train_test_pct_or_n` is equal to 1 or less 
+            than or equal to 0
 
         Notes
         -----
@@ -1299,35 +1308,56 @@ class TS_Tell():
         to forecast several days (i.e., more than a month) into the future.
         
         """
-        if train_pct_or_n > 0 and train_pct_or_n < 1:
-            total_n = len(self.input_ts)
-            train_n = int(np.round(total_n * train_pct_or_n))
-        elif train_pct_or_n > 1:
-            train_n = train_pct_or_n
+        
+        if train_test_pct_or_n > 0 and train_test_pct_or_n < 1:
+            if train_test_pct_or_n < 0.5:
+                train_n = int(np.round(self.n_obs * (1 - train_test_pct_or_n)))
+            else:
+                train_n = int(np.round(self.n_obs * train_test_pct_or_n))
+        elif train_test_pct_or_n > 1:
+            if train_test_pct_or_n / self.n_obs < 0.5: # @TODO self.
+                train_n = int(np.round(self.n_obs * (1 - 
+                                     train_test_pct_or_n / self.n_obs)))
+            else:
+                train_n = int(np.round(self.n_obs * train_test_pct_or_n
+                                           / self.n_obs))
         else:
-            raise ValueError("The value for `train_pct_or_n` cannot be equal " \
-                                "to 1 or less than or equal to 0")
+            raise ValueError("The value for `train_test_pct_or_n` cannot be " \
+                                 "equal to 1 or less than or equal to 0")
             
         train, test = self.input_ts[:train_n], self.input_ts[train_n:]
         train.index.freq = self._get_data_freq()
         test.index.freq = self._get_data_freq()
+
+        if show_graph:
+            fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
+            ax = train.plot(marker='o', c='blue', label="Train", alpha=0.67)
+            ax = test.plot(ax = ax, marker='o', c='orange', label="Test", 
+                           alpha=0.8)
+            xmin, xmax = ax.get_xlim()
+            xmin = xmin - 1
+            xmax = xmax + 1
+            ax.set_xlim(xmin, xmax)
+            plt.title("Train / Test Split")
+            plt.ylabel(self.ts_name)
+            plt.legend()
+            plt.show()
         
         return train, test
 
 
-    def get_traintest_plot(self, train_pct_or_n: float=None):
+    def get_traintest_plot(self, train_test_pct_or_n: float=None):
         """Get a plot of Train + Test
 
         Parameters
         ----------
-        train_pct_or_n : float default None
-            W
+        train_test_pct_or_n : float default None
 
         """
-        if train_pct_or_n != None:
-            train, test = self.get_train_test(train_pct_or_n)
+        if train_test_pct_or_n != None:
+            train, test = self.get_train_test(train_test_pct_or_n)
         else:
-            train, test = self.get_train_test()
+            train, test = self.get_train_test(get_train_test)
         fig, ax = plot_series(train, test, labels=["train", "test"])
         ax.grid()
         plt.show()
@@ -1364,6 +1394,7 @@ class TS_Tell():
     def model_perf_inoutfull(self, 
                              model_name: str,
                              model_spec,
+                             train_test_pct_or_n: float=0.80,
                              print_graphs: bool=True,
                              return_df: bool=False) -> Optional[pd.DataFrame]:
         """Model performance In-Sample/Out-of-Sample/Full time series
@@ -1374,6 +1405,8 @@ class TS_Tell():
             The name of the model
         model_spec
             The model-specific specifications for a specific model
+        train_test_pct_or_n : float default 0.80
+            The Train / Test split - see `get_train_test()` for details
         print_graphs : bool default True
             Whether or not print the graphs
         return_df : bool default False
@@ -1397,8 +1430,9 @@ class TS_Tell():
         df_cols = ["mape_train", "mape_test", "mape_full", "model_spec"]
         mape_df = pd.DataFrame(columns=df_cols)
         mape_df.index.name = "Model"
-        
-        y_train, y_test = self.get_train_test()
+
+        y_train, y_test = self.get_train_test(train_test_pct_or_n=
+                                                  train_test_pct_or_n)
         y = pd.concat([y_train, y_test])
     
         model = model_spec
@@ -1450,7 +1484,12 @@ class TS_Tell():
             plt.show()
             
             fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
-            plt.title("{} Full (Train + Test) MAPE: {:0.1f}%".format(model_name, mape_full), fontsize=16)
+            #plt.title("{} Full (Train + Test) MAPE: {:0.1f}%".format(model_name, mape_full), fontsize=16)
+            plt.title("{} Full MAPE: {:0.1f}%\nTrain MAPE:  " \
+                "{:0.1f}%  Test MAPE:  {:0.1f}%".format(model_name, 
+                                                        mape_full, 
+                                                        mape_train, 
+                                                        mape_test))
             styling = {"marker": 'o', "alpha": 0.8}
             ax = y_train.plot(**styling, label="train")
             ax = pred_train.plot(**styling, label="pred_train")
@@ -1469,24 +1508,26 @@ class TS_Tell():
         
     def get_auto_models(self, 
                         eval_method: str="InOutFull",
+                        train_test_pct_or_n: float=0.80,
                         print_results: bool=True,
                         return_results: bool=False) -> Optional[pd.DataFrame]: 
             """ Get automatic models
 
-            *** 
+            *** NOTE: If both `print_results` and `return_results` are True and the 
+                output is not assigned, an additional print out of the pd.DataFrame
+                will occur
     
             Parameters
             ----------
             eval_method : str {def:"InOutFull", "SlidingWindow", "ExpandingWindow"}
                 Which model evaluation method to use
                 @TODO - build Sliding Windows, Expanding Windows
+            train_test_pct_or_n : float default 0.80
+                The Train / Test split - see `get_train_test()` for details
             print_results : bool default True
                 Whether or not to print the results
             return_results : bool default False
                 Whether or not to return the resultant pd.DataFrame
-            *** NOTE: If both `print_results` and `return_results` are True and the 
-                output is not assigned, an additional print out of the pd.DataFrame
-                will occur
     
             Returns
             -------
@@ -1514,6 +1555,7 @@ class TS_Tell():
                 if eval_method=="InOutFull":
                     this_df = self.model_perf_inoutfull(model_name, 
                                                         model_spec, 
+                                                        train_test_pct_or_n,
                                                         print_graphs=False,
                                                         return_df=True)
                     if model_name=="AutoARIMA":
@@ -1560,7 +1602,9 @@ class TS_Tell():
         print()
 
         
-    def get_profile_full(self, auto_models: bool=False):
+    def get_profile_full(self, 
+                         auto_models: bool=False,
+                         train_test_pct_or_n: float=0.80):
         """Get Profile Full
 
         Run a logical sequence of TS Tell methods to profile the Time Series
@@ -1569,6 +1613,8 @@ class TS_Tell():
         ----------
         auto_models : bool default False
             Whether or not to automatically fit pre-specified models
+        train_test_pct_or_n : float default 0.80
+            The Train / Test split - see `get_train_test()` for details
 
         #try:
         #    self.get_trend_test()
@@ -1609,10 +1655,11 @@ class TS_Tell():
         print()
         self.get_model_seasonalities()
         print()
-        self.get_traintest_plot()
+        self.get_train_test(train_test_pct_or_n=train_test_pct_or_n, 
+                            show_graph=True)
         print()
         if auto_models:
-            self.get_auto_models()
+            self.get_auto_models(train_test_pct_or_n=train_test_pct_or_n)
             print()
         
         elapsed_time = datetime.datetime.now() - start_time
