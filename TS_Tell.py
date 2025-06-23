@@ -700,6 +700,7 @@ class TS_Tell():
                                 smooth_order: int=3,
                                 extrema_std: int=3,
                                 critical_z: float=2.326,
+                                backcast: bool=False,
                                 return_df: bool=False) -> Optional[pd.DataFrame]:
         """Get a smoothed, imputed version of the input Time Series
 
@@ -723,27 +724,49 @@ class TS_Tell():
             The Z-value to consider for extrema/outliers/anomolies (2.326 is 
             the top/bottom 1% - see Notes for some typical values or consult
             a Critical Z chart online / in a textbook
+        backcast : bool default False
+            Whether or not to utilize backcasting to impute points at the
+            beginning of the time series.
         return_df : bool default False
             Whether or not to return the results via a pd.DataFrame
 
+        Notes
+        -----
+        The `backcast` parameter is extremely helpful when differencing and/
+        or lagging is/are employed. The first few observations are lost since 
+        the calculation requires data prior to the earliest date provided.
+        Typically, if not lost, the value(s) is/are imputed with the mean.        
+        This flips the data and imputes using the natural curve of the time
+        series, then flips the data back to the correct order.
+
         Returns
         -------
-        input_ts : float
+        y : float
             The original input time series
-        std_roll : float
-            The rolling standard deviation of the time series
-        z : float
-            The standardized input time series
+        y_mi : float
+            `y` plus 1 imputed for missing values
         smooth_ts : float
             The smoothed filter value
         hi_bound : float
             The smoothed filter value plus `extrema_std` std devs
         lo_bound : float
             The smoothed filter value minus `extrema_std` std devs
-        examine : int
-            1 if an observation to examine, otherwise 0
-        imp : float
-            The original series imputed with smoothed values
+        random_var : float
+            A slight disturbance term to create variability
+        smoothed_ts_random_var : float
+            `y` imputed with smoothed values that contain random variation
+        y_imp : float
+            The original input time series with imputed values
+        y_imp_out_smooth : float
+            `y` with outliers smoothed (pulled back to extreme boundary)
+        outlier_smooth : int
+            1 if `y_imp` was imputed based upon the smoother, 0 if not
+        z : float
+            The standardized z-value of `y_imp`
+        y_imp_out_z : float
+            `y` with outliers imputed back to the smoothed bounds
+        outlier_z : int
+            1 if `y_imp` was imputed based upon the z-value, 0 if not
 
         Raises
         ------
@@ -797,6 +820,10 @@ class TS_Tell():
         df = self.get_trend_dataframe()
         # impute any missings with 1 to ensure full series
         df["y_mi"] = df['y'].fillna(1)
+
+        # @TODO TEST
+        if backcast:
+            df = df[::-1]
 
         # smoother choice
         if smoother=="WE":
@@ -852,6 +879,9 @@ class TS_Tell():
                                      )        
         df["outlier_z"] = np.where(df["y_imp_out_z"] != df["y_imp"], 1, 0)
 
+        # @TODO TEST
+        if backcast:
+            df = df[::-1]
 
         # GRAPHING
         fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
@@ -1016,14 +1046,14 @@ class TS_Tell():
     
 
     def get_nltrend_test(self, 
-                         third_order: bool=False,
+                         third_order: bool=True,
                          sig_pval: float=0.05, 
                          print_messages: bool=True) -> None:
         """Get results from a Non-Linear Trend test
 
         Parameters
         ----------
-        third_order : bool default False
+        third_order : bool default True
             Whether or not to additionally consider a 3rd order effect
         sig_pval : float default 0.05
             The p-value about which significance is determined
