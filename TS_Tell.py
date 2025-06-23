@@ -1425,6 +1425,7 @@ class TS_Tell():
                              model_name: str,
                              model_spec,
                              train_test_pct_or_n: float=0.80,
+                             expo: bool=False,
                              print_graphs: bool=True,
                              return_df: bool=False) -> Optional[pd.DataFrame]:
         """Model performance In-Sample/Out-of-Sample/Full time series
@@ -1437,6 +1438,8 @@ class TS_Tell():
             The model-specific specifications for a specific model
         train_test_pct_or_n : float default 0.80
             The Train / Test split - see `get_train_test()` for details
+        expo : bool default False
+            Whether or not to exponentiate to see actual unit performance
         print_graphs : bool default True
             Whether or not print the graphs
         return_df : bool default False
@@ -1470,20 +1473,36 @@ class TS_Tell():
         
         # in-sample (train) forecasting
         fh = ForecastingHorizon(y_train.index)
-        pred_train = model.predict(fh)
-        mape_train = mean_absolute_percentage_error(y_train, pred_train) * 100
+        if expo:
+            pred_train = np.exp(model.predict(fh))
+            mape_train = mean_absolute_percentage_error(np.exp(y_train), 
+                                                        pred_train) * 100
+        else:
+            pred_train = model.predict(fh)
+            mape_train = mean_absolute_percentage_error(y_train, pred_train) * 100
         mape_df.at[model_name, "mape_train"] = mape_train
         
         # out-of-sample (test) forecasting
         fh = ForecastingHorizon(y_test.index)
-        pred_test = model.predict(fh)
-        mape_test = mean_absolute_percentage_error(y_test, pred_test) * 100
+        if expo:
+            pred_test = np.exp(model.predict(fh))
+            mape_test = mean_absolute_percentage_error(np.exp(y_test),
+                                                       pred_test) * 100
+        else:
+            pred_test = model.predict(fh)
+            mape_test = mean_absolute_percentage_error(y_test, pred_test) * 100
+
         mape_df.at[model_name, "mape_test"] = mape_test
         
         # Full sample forecasting
         fh = ForecastingHorizon(y.index)
-        pred_full = model.predict(fh)
-        mape_full = mean_absolute_percentage_error(y, pred_full) * 100
+        if expo:
+            pred_full = np.exp(model.predict(fh))
+            mape_full = mean_absolute_percentage_error(np.exp(y),
+                                                       pred_full) * 100
+        else:
+            pred_full = model.predict(fh)
+            mape_full = mean_absolute_percentage_error(y, pred_full) * 100        
         mape_df.at[model_name, "mape_full"] = mape_full
     
         mape_df.at[model_name, "model_spec"] = str(model_spec)
@@ -1539,6 +1558,7 @@ class TS_Tell():
     def get_auto_models(self, 
                         eval_method: str="InOutFull",
                         train_test_pct_or_n: float=0.80,
+                        expo: bool=False,
                         print_results: bool=True,
                         return_results: bool=False) -> Optional[pd.DataFrame]: 
             """ Get automatic models
@@ -1554,6 +1574,8 @@ class TS_Tell():
                 @TODO - build Sliding Windows, Expanding Windows
             train_test_pct_or_n : float default 0.80
                 The Train / Test split - see `get_train_test()` for details
+            expo : bool default False
+                Whether or not to exponentiate to see actual unit performance        
             print_results : bool default True
                 Whether or not to print the results
             return_results : bool default False
@@ -1586,6 +1608,7 @@ class TS_Tell():
                     this_df = self.model_perf_inoutfull(model_name, 
                                                         model_spec, 
                                                         train_test_pct_or_n,
+                                                        expo=expo,
                                                         print_graphs=False,
                                                         return_df=True)
                     if model_name=="AutoARIMA":
@@ -1612,11 +1635,23 @@ class TS_Tell():
                 return res_df
             
 
-    def get_profile_brief(self):
+    def get_profile_brief(self,
+                          auto_models: bool=False,
+                          train_test_pct_or_n: float=0.90,
+                          expo: bool=False):
         """Get Profile brief
 
         Run a brief, critical few methods to profile the Time Series
 
+        Parameters
+        ----------
+        auto_models : bool default False
+            Whether or not to automatically fit pre-specified models
+        train_test_pct_or_n : float default 0.90
+            The Train / Test split - see `get_train_test()` for details
+        expo : bool default False
+            Whether or not to exponentiate to see actual unit performance
+            
         """
         self.get_sample_facts()
         print()
@@ -1630,11 +1665,17 @@ class TS_Tell():
         print()
         self.get_spectral_graphs()
         print()
+        if auto_models:
+            self.get_auto_models(train_test_pct_or_n=train_test_pct_or_n,
+                                 expo=expo)
+            print()
+            
 
         
     def get_profile_full(self, 
                          auto_models: bool=False,
-                         train_test_pct_or_n: float=0.80):
+                         train_test_pct_or_n: float=0.90,
+                         expo: bool=False):
         """Get Profile Full
 
         Run a logical sequence of TS Tell methods to profile the Time Series
@@ -1645,7 +1686,9 @@ class TS_Tell():
             Whether or not to automatically fit pre-specified models
         train_test_pct_or_n : float default 0.80
             The Train / Test split - see `get_train_test()` for details
-
+        expo : bool default False
+            Whether or not to exponentiate to see actual unit performance
+        
         #try:
         #    self.get_trend_test()
         #    print()
@@ -1689,7 +1732,8 @@ class TS_Tell():
                             show_graph=True)
         print()
         if auto_models:
-            self.get_auto_models(train_test_pct_or_n=train_test_pct_or_n)
+            self.get_auto_models(train_test_pct_or_n=train_test_pct_or_n,
+                                 expo=expo)
             print()
         
         elapsed_time = datetime.datetime.now() - start_time
