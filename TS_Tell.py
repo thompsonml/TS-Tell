@@ -225,6 +225,8 @@ class TS_Tell():
     def get_trend_dataframe(self, 
                             time_feats: bool=False,
                             time_dummies: bool=False,
+                            lags_diffs: bool=False,
+                            season_len: int=None
                             ) -> pd.DataFrame:
         """Get a Trend Dataframe with an option for time features
 
@@ -236,6 +238,11 @@ class TS_Tell():
             Whether or not to return time-based features
         time_dummies : bool default False
             Whether or not to return time-based features in dummy form
+        lags_diffs : bool default False
+            Whether or not to build lag, diff, and % diff covariates
+        season_len : int default None
+            To supply a custom season length. As a convenience, if not
+            specified then `self.season_len` is used.
         
         Raises
         ------
@@ -256,7 +263,13 @@ class TS_Tell():
             The quarter number of the year
         year : int
             The year of the input time series
-        
+        lag_<n> : float
+            The `y` value from 1 to n time periods ago
+        diff_<i>_<j> : float
+            The `y` value at time i minus the value at time j    
+        pct_diff_<i>_<j> : float
+            The `y` value at time i divided by the value at time j, minus 1
+
         """
         if time_dummies and not time_feats:
             raise ValueError("`time_dummies` cannot be True if "
@@ -264,7 +277,8 @@ class TS_Tell():
 
         df = pd.DataFrame(self.input_ts)
         df.columns = ['y']
-        
+
+        # basic time features
         if time_feats:
             df['t'] = range(1, len(df)+1)
             df["week"] = df.index.isocalendar().week.astype(int)
@@ -272,9 +286,23 @@ class TS_Tell():
             df["quarter"] = df.index.quarter.astype(int)
             df["year"] = df.index.year.astype(int)
 
+            # dummies for each time feature
             if time_dummies:
                 cols = ["week", "month", "quarter", "year"]
                 df = pd.get_dummies(df, columns=cols, dtype=int)
+
+        # lags, diffs, and pct diffs
+        if lags_diffs:
+            # lags
+            for i in range(self.season_length + 1):
+                df["lag_" + str(i + 1)] = df['y'].shift(i + 1)
+                # diffs, pct_diffs
+                for j in range(1, self.season_length + 2):
+                    if i <= j and i != j:
+                        df["diff_" + str(i) + "_" + str(j)] = \
+                            df['y'].shift(i) - df['y'].shift(j)
+                        df["pct_diff_" + str(i) + "_" + str(j)] = \
+                            df['y'].shift(i)/ df['y'].shift(j) - 1
                 
         return df
         
