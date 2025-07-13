@@ -39,8 +39,10 @@ from sktime.utils.plotting import plot_series
 from sktime.utils.plotting import plot_correlations
 
 from sktime.performance_metrics.forecasting import mean_absolute_percentage_error
+from sktime.performance_metrics.forecasting import median_absolute_percentage_error
+from sktime.performance_metrics.forecasting import MeanAbsolutePercentageError
+from sktime.performance_metrics.forecasting import MedianAbsolutePercentageError
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-#from sktime.forecasting.sarimax import SARIMAX
 from sktime.forecasting.arima import AutoARIMA
 from sktime.forecasting.ets import AutoETS
 from sktime.forecasting.statsforecast import StatsForecastAutoARIMA
@@ -51,6 +53,13 @@ from sktime.forecasting.naive import NaiveForecaster
 from sktime.forecasting.fbprophet import Prophet
 
 from sktime.forecasting.base import ForecastingHorizon
+from sktime.split import SlidingWindowSplitter
+from sktime.split import ExpandingWindowSplitter
+from sktime.forecasting.model_evaluation import evaluate
+
+from sktime.utils import plot_series
+from sktime.utils import plot_windows
+
 
 class TS_Tell():
     def __init__(self, 
@@ -169,6 +178,13 @@ class TS_Tell():
         return self.input_ts
 
     
+    def get_season_length(self):
+        """Private method to get the Season length
+        
+        """
+        return self.season_length
+        
+
     def set_input_ts(self, updated_ts):
         """Set Input Time Series
 
@@ -263,7 +279,6 @@ class TS_Tell():
         return df
         
 
-#    def get_stationarity_tests(self) -> tuple:
     def get_stationarity_tests(self,
                                input_ts: pd.Series=None) -> tuple:        
         """Get stationarity tests to examine for presence of a unit root
@@ -525,22 +540,27 @@ class TS_Tell():
 
         fig.suptitle(self.ts_name, fontsize=16)
         ax1 = fig.add_subplot(2, 1, 1)
-        ax1.set_title("$R^2$={: 0.1f}  p-value: {: 0.4f}".format(r_value*100, p_value))
+        ax1.set_title("$R^2$={: 0.1f}  p-value: {: 0.4f}".format(r_value*100, 
+                                                                 p_value))
         ax1.plot(reg_df.index, y, marker='o', markersize=3)
         ax1.plot(reg_df.index, reg_df["yhat"], c='orange', ls='--')
         ax1.grid()
-        
+
+        n_lags = int(self.n_obs / 2 - 1)
         # PACF
         ax2 = fig.add_subplot(2, 2, 3)
         ax2.set_xlabel("AR Term Lag")
         ax2.grid()
-        sm.graphics.tsa.plot_pacf(self.input_ts.values.squeeze(), lags=9, ax=ax2)
+
+        sm.graphics.tsa.plot_pacf(self.input_ts.values.squeeze(), lags=n_lags, 
+                                  ax=ax2)
         
         # ACF
         ax3 = fig.add_subplot(2, 2, 4)
         ax3.set_xlabel("MA Term Lag")
         ax3.grid()
-        sm.graphics.tsa.plot_acf(self.input_ts.values.squeeze(), lags=9, ax=ax3)
+        sm.graphics.tsa.plot_acf(self.input_ts.values.squeeze(), lags=n_lags,
+                                 ax=ax3)
         
         plt.tight_layout()
         plt.show()
@@ -692,8 +712,32 @@ class TS_Tell():
             plt.show()
                 
 
-    # @TODO get_outliers_autoencoder(self) -> Optional[pd.DataFrame]: """Get outliers via a Variational AutoEncoder """
-    
+    # @TODO 
+    def get_outliers_autoencoder(self,
+                                 smooth_imp: bool=True,
+                                 ) -> Optional[pd.DataFrame]: 
+        """Get outliers via a Variational AutoEncoder 
+        --------------------------------------------------------------------------------        
+        Parameters
+        ----------
+        smooth_imp : bool default True
+            Whether or not to use results from `get_smoothed_imputation`
+        
+
+        Returns
+        -------
+        
+
+        Notes
+        -----
+
+        
+        """
+        df = self.get_smoothed_imputation(return_df=True)
+        smoothed_series = df[["y_imp_out_smooth"]]
+
+        return smoothed_series
+
     
     def get_smoothed_imputation(self, 
                                 smoother: str="WE",
@@ -906,12 +950,7 @@ class TS_Tell():
                     mec='r', ms=16
             )
             
-        #Comment out the Critical Z thesh - must print out Z to work
-        #plt.axhline(y=critical_z, color='r', linestyle='--', alpha=0.5, 
-        #            label="Critical Z Value")
-        #plt.axhline(y=-critical_z, color='r', linestyle='--', alpha=0.5)
         plt.suptitle("Curve Shape, Imputation, and Possible Extrema", fontsize=11)
-        #plt.title(f"Critical Z: {critical_z}", fontsize=9)
         plt.legend(fontsize=8, ncol=5)
         plt.grid()
         plt.show()
@@ -919,6 +958,79 @@ class TS_Tell():
         if return_df:
             return df
 
+
+    def get_poly_fit(self,
+                     ts: pd.Series,
+                     deg: int=3, 
+                     pred_steps: int=None, 
+                     print_graph: bool=True,
+                     return_df : bool=True) -> Optional[pd.DataFrame]:
+        """
+        Get Poly(nomial) Fit
+    
+        This method takes the input time series, split into an `x` component
+        (time) and a `y` component (the metric of interest). Fits a polynomial
+        to the degree specified and optionally predicts forward (`pred_steps`).
+    
+        Parameters
+        ----------
+        ts : pd.Series    
+            The input time series of interest
+        deg : int default 3
+            The degree of the polynomial
+        pred_steps : int default None
+            The number of prediction steps into the future
+        print_graph : bool default True
+            Whether or not to print the graph of actual and optionally predicted
+        return_df : bool default True
+            Whether or not to return the resultant DataFrame
+            
+        Returns
+        -------
+        y : int
+            The `y` metric passed that the forecast is based upon
+        predicted : float
+            The predicted value - *potentially* forecast using `pred_steps`
+        
+        """
+        x = ts.index.values
+        y = ts.values
+        if ts.name==None:
+            ts.name='y'
+            
+        xn = range(x.min(), x.max() + 1)
+        coefs = np.polyfit(x, y, deg)
+        yn = np.polyval(coefs, xn)
+
+        actuals = pd.Series(y, x, name=ts.name)
+        if pred_steps:        
+            new_x = np.arange(x.max() + 1, x.max() + pred_steps + 1)
+            preds = np.polyval(coefs, new_x)
+
+            df = pd.concat([actuals, 
+                            pd.concat([pd.Series(yn, x, name="predicted"), 
+                                       pd.Series(preds, new_x, name="predicted")]
+                                     )], axis=1)
+        else:
+            df = pd.concat([actuals, 
+                            pd.Series(yn, x, name="predicted")], axis=1)      
+    
+        fig, ax = plt.subplots(figsize=plt.figaspect(0.3), layout="tight")
+        plt.title("Modeled Projection")
+        plt.plot(x, y, 'o', c='k', label='Actual', alpha=0.67)
+        x_ticks = np.arange(int(min(x)), int(max(x)) + 1)
+        if pred_steps:
+            plt.plot(df.index, df["predicted"], '--', c='tab:orange', 
+                     alpha=0.5, label='Modeled')
+            plt.plot(new_x, preds, 'o', c='r', label='Predicted')
+        else:
+            plt.plot(x, yn, '--', c='tab:orange', alpha=0.5, label='Modeled')
+        plt.legend()
+        plt.show()
+    
+        if return_df:
+            return df
+        
     
     def get_lag_tests(self, 
                       n_lags: int=None,
@@ -1553,6 +1665,166 @@ class TS_Tell():
 
         if return_df:
             return mape_df
+
+
+    def model_perf_windowing(self,
+                             model_spec,
+                             use_full: bool=True,
+                             train_test_pct_or_n: float=0.80,
+                             season_len: int=None,
+                             win_len: int=None,
+                             step_len: int=1,
+                             fh: int=range(2),
+                             scoring_metric: str="MAPE",
+                             expo: bool=False,
+                             show_window_graphs: bool=True,
+                             return_dfs: bool=True) -> Optional[Tuple[pd.DataFrame, pd.DataFrame]]:
+        """
+        Model performance Windowing via Sliding and Expanding
+    
+        Parameters
+        ----------
+        model_spec
+            The model-specific specifications for a specific model
+        use_full : bool default True
+            Whether or not to Window over the entire time series (Full: Train +
+            Test) or just Train
+        train_test_pct_or_n : float default 0.80
+            The Train / Test split - see `get_train_test()` for details
+            * NOTE: has no effect when `use_full` is True
+        season_len : int default None
+            The length of the cyclical season. Set to None, but as a convenience
+            defaulted to self.season_length
+        win_len : int default None
+            The length of the modeling window. For Expanding, this is the length
+            of the initial window only. Defaulted to None, but as a convenience
+            set to half the input time series length.
+        fh : int default range(2)
+            The length of the forecasting horizon
+        scoring_metric : str {"MAPE", "MdAPE", "sMAPE", "sMdAPE"} default "MAPE"
+            The scoring metric
+        expo : bool default False
+            Whether or not to exponentiate to see actual unit performance
+        show_window_graphs : bool default True
+            Whether or not to print the Sliding and Window graphs
+        return_dfs : bool default True
+            Whether or not to return the dataframe entry
+        
+        Returns
+        -------
+        Tuple of Pandas DataFrames of the `results` method of sktime, one each for:
+            - Sliding
+            - Expanding 
+            
+        """
+        if season_len == None:
+            season_len = self.season_length
+
+        if win_len == None:
+            win_len = int(len(self.input_ts)/2)
+    
+        if use_full:
+            y = self.input_ts
+        else:
+            y, _ = self.get_train_test(train_test_pct_or_n)
+    
+        if scoring_metric in ["MAPE", "MdAPE"]:
+            score_sym = False
+        elif scoring_metric in ["sMAPE", "sMdAPE"]:
+            score_sym = True
+        else:
+            raise Exception("A misspelling or an inappropriate scoring " + \
+                            "metric was used. Please use one of `MAPE`," + \
+                            "`sMAPE`, `MdAPE`, or `sMdAPE`.")
+    
+        if scoring_metric in ["MAPE", "sMAPE"]:
+            eval_scorer = MeanAbsolutePercentageError(symmetric=score_sym)
+        elif scoring_metric in ["MdAPE", "sMdAPE"]:
+            eval_scorer = MedianAbsolutePercentageError(symmetric=score_sym)
+        else:
+            raise Exception("A misspelling or an inappropriate scoring " + \
+                            "metric was used. Please use one of `MAPE`," + \
+                            "`sMAPE`, `MdAPE`, or `sMdAPE`.")
+    
+        # windowing results
+        def window_results(sliding: bool=True) -> pd.DataFrame:
+            if sliding:
+                cv=SlidingWindowSplitter(window_length=win_len, step_length=step_len,
+                                         fh=fh)
+            else:
+                cv=ExpandingWindowSplitter(initial_window=win_len, step_length=step_len, 
+                                           fh=fh)
+            
+            if show_window_graphs:
+                plot_windows(cv=cv, y=y)
+            
+            results = evaluate(
+                forecaster=model_spec,
+                y=y,
+                cv=cv, 
+                scoring=eval_scorer,
+                return_data=True,
+            )
+            
+            mape_list = []
+            for idx in range(len(results)):
+                if expo:
+                    if scoring_metric in ["MAPE", "sMAPE"]:
+                        mape_window = mean_absolute_percentage_error(
+                                        np.exp(y.loc[results.y_pred[idx].index]), 
+                                        np.exp(results.y_pred[idx]),
+                                        symmetric = score_sym
+                        )
+                    elif scoring_metric in ["MdAPE", "sMdAPE"]:
+                        mape_window = median_absolute_percentage_error(
+                                        np.exp(y.loc[results.y_pred[idx].index]), 
+                                        np.exp(results.y_pred[idx]),
+                                        symmetric = score_sym
+                        )
+                else:
+                    if scoring_metric in ["MAPE", "sMAPE"]:        
+                        mape_window = mean_absolute_percentage_error(
+                                        y.loc[results.y_pred[idx].index], 
+                                        results.y_pred[idx],
+                                        symmetric = score_sym
+                        )
+                    elif scoring_metric in ["MdAPE", "sMdAPE"]:
+                        mape_window = median_absolute_percentage_error(
+                                        y.loc[results.y_pred[idx].index], 
+                                        results.y_pred[idx],
+                                        symmetric = score_sym
+                        )
+                mape_list.append(mape_window)
+            results[scoring_metric] = mape_list
+            return results
+        
+        results_sliding = window_results(True)
+        results_expand = window_results(False)
+    
+        # Performance plot
+        fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
+        plt.plot(results_sliding["cutoff"], results_sliding[scoring_metric]*100, 
+                 marker='o', label="Sliding")
+        plt.plot(results_expand["cutoff"], results_expand[scoring_metric]*100, 
+                 marker='o', label="Expanding")
+        plt.legend()
+        plt.xticks(rotation=45)
+        plt.axhline(y=results_sliding[scoring_metric].mean()*100, ls='--', 
+                    c='tab:blue')
+        plt.axhline(y=results_expand[scoring_metric].mean()*100, ls='--',
+                    c='tab:orange')
+        plt.title("Average {}:\nSliding: {:0.1f}%  Expanding: {:0.1f}%".format(
+                        scoring_metric,
+                        results_sliding[scoring_metric].mean()*100, 
+                        results_expand[scoring_metric].mean()*100
+                        )
+                 )
+        plt.ylabel(scoring_metric)
+        plt.xlabel("Date")
+        plt.show()
+        
+        if return_dfs:
+            return (results_sliding, results_expand)
 
         
     def get_auto_models(self, 
