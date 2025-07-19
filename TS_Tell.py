@@ -179,16 +179,26 @@ class TS_Tell():
 
     
     def get_season_length(self):
-        """Private method to get the Season length
+        """Get the Season length
         
         """
         return self.season_length
         
 
+    def set_season_length(self, new_seas_len):
+        """Set the Season Length
+
+        Update Season Length to `new_seas_len`
+
+        """
+        self.season_length = new_seas_len
+        print("The season length has been updated.\n")
+
+    
     def set_input_ts(self, updated_ts):
         """Set Input Time Series
 
-        Set the updated TS to `self.input_ts`
+        Set the updated Time Series to `self.input_ts`
 
         """
         self.input_ts = updated_ts
@@ -886,7 +896,6 @@ class TS_Tell():
         @TODO
         -------
         Examine https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html 
-            for applicability
         
         """
         df = self.get_trend_dataframe()
@@ -926,7 +935,8 @@ class TS_Tell():
         # impute using the smoothed time series with some random variation
         df["y_imp"] = df['y'].fillna(df["smoothed_ts_random_var"])
 
-        # pull outliers back to smoothed ts bound IFF above/below bounds
+        # PULL OUTLIERS BACK TO SMOOTHED TS BOUND
+        # IFF above/below bounds
         df["y_imp_out_smooth"] = np.where(df["y_imp"] > df["hi_bound"], 
                                           df["hi_bound"],
                                           np.where(df["y_imp"]<df["lo_bound"], 
@@ -938,7 +948,7 @@ class TS_Tell():
         df["outlier_smooth"] = np.where(df["y_imp_out_smooth"] != df["y_imp"],
                                         1, 0)
         
-        # pull outliers back to smoothed ts bound IFF > standardized (z) value
+        # IFF above standardized (z) value
         df['z'] = (df["y_imp"] - df["y_imp"].mean()) / df["y_imp"].std()
         df["y_imp_out_z"] = np.where((abs(df['z']>critical_z)) & 
                                          (df['hi_bound'] < df['y_imp']), 
@@ -951,9 +961,14 @@ class TS_Tell():
                                      )        
         df["outlier_z"] = np.where(df["y_imp_out_z"] != df["y_imp"], 1, 0)
 
+        # IFF extreme standardized pct diff
+        
+
         # @TODO TEST
         if backcast:
             df = df[::-1]
+
+        
 
         # GRAPHING
         fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
