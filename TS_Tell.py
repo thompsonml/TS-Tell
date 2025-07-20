@@ -9,7 +9,7 @@ warnings.simplefilter('ignore', InterpolationWarning)
 
 # typing
 import typing
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 # data analysis
 import pandas as pd
@@ -65,7 +65,8 @@ class TS_Tell():
     def __init__(self, 
                  ts_name: str,
                  input_ts: pd.Series, 
-                 season_length: int=52
+                 season_length: int=52,
+                 exog: Union[pd.Series, pd.DataFrame]=None
                 ):
         """Default constructor of the TS_Tell class
 
@@ -78,6 +79,8 @@ class TS_Tell():
         season_length : int, default 52
             The maximum value of the season / cycle (12 for monthly, 52 for 
             weekly, 4 for quarterly, 7 for daily, 168 for hourly, etc.)
+        exog : Union[pd.Series, pd.DataFrame] default None
+            Optional exogeneous regressor(s) to explain / better predict
 
         Notes
         -----
@@ -97,6 +100,7 @@ class TS_Tell():
         self.ts_name = ts_name
         self.input_ts = input_ts
         self.season_length = season_length
+        self.exog = exog
 
         # additional objects
         self.n_obs = len(self.input_ts)
@@ -145,7 +149,7 @@ class TS_Tell():
         return hp_lambda
 
     
-    def _get_WMA(self, s, period):
+    def _get_WMA(self, s, period) -> float:
         """Private method to get the Weighted Moving Average
 
         References
@@ -158,7 +162,7 @@ class TS_Tell():
                                       (np.arange(period)+1).sum(), raw=True)
 
     
-    def _get_HMA(self, s, period):
+    def _get_HMA(self, s, period) -> float:
         """Private method to get Hull's Moving Average
 
         References
@@ -171,14 +175,14 @@ class TS_Tell():
         
 
     # PUBLIC methods
-    def get_input_ts(self):
+    def get_input_ts(self) -> float:
         """Get Input Time Series
 
         """
         return self.input_ts
 
     
-    def get_season_length(self):
+    def get_season_length(self) -> int:
         """Get the Season length
         
         """
@@ -192,7 +196,8 @@ class TS_Tell():
 
         """
         self.season_length = new_seas_len
-        print("The season length has been updated.\n")
+        print("The season length for `{}` has been " \
+                    "updated.\n".format(self.ts_name))
 
     
     def set_input_ts(self, updated_ts):
@@ -202,7 +207,8 @@ class TS_Tell():
 
         """
         self.input_ts = updated_ts
-        print("The input time series has been updated.\n")
+        print("The input time series for `{}` has been " \
+                    "updated.\n".format(self.ts_name))
 
     
     def get_models_dict(self):
@@ -1031,7 +1037,7 @@ class TS_Tell():
         Returns
         -------
         y : int
-            The `y` metric passed that the forecast is based upon
+            The `y` value passed that the forecast is based upon
         predicted : float
             The predicted value - *potentially* forecast using `pred_steps`
         
@@ -1757,9 +1763,23 @@ class TS_Tell():
         -------
         Tuple of Pandas DataFrames of the `results` method of sktime, one each for:
             - Sliding
-            - Expanding 
-            
+            - Expanding
+
+        Raises
+        ------
+        ValueError
+            If the scoring metric is not in ["MAPE", "MdAPE", "sMAPE", "sMdAPE"]
+        
         """
+        if scoring_metric in ["MAPE", "MdAPE"]:
+            score_sym = False
+        elif scoring_metric in ["sMAPE", "sMdAPE"]:
+            score_sym = True
+        else:
+            raise ValueError("A misspelling or an inappropriate scoring " + \
+                            "metric was used. Please use one of `MAPE`," + \
+                            "`sMAPE`, `MdAPE`, or `sMdAPE`.")
+    
         if season_len == None:
             season_len = self.season_length
 
@@ -1770,15 +1790,6 @@ class TS_Tell():
             y = self.input_ts
         else:
             y, _ = self.get_train_test(train_test_pct_or_n)
-    
-        if scoring_metric in ["MAPE", "MdAPE"]:
-            score_sym = False
-        elif scoring_metric in ["sMAPE", "sMdAPE"]:
-            score_sym = True
-        else:
-            raise Exception("A misspelling or an inappropriate scoring " + \
-                            "metric was used. Please use one of `MAPE`," + \
-                            "`sMAPE`, `MdAPE`, or `sMdAPE`.")
     
         if scoring_metric in ["MAPE", "sMAPE"]:
             eval_scorer = MeanAbsolutePercentageError(symmetric=score_sym)
@@ -1792,11 +1803,13 @@ class TS_Tell():
         # windowing results
         def window_results(sliding: bool=True) -> pd.DataFrame:
             if sliding:
-                cv=SlidingWindowSplitter(window_length=win_len, step_length=step_len,
-                                         fh=fh)
+                cv=SlidingWindowSplitter(window_length = win_len, 
+                                         step_length = step_len,
+                                         fh = fh)
             else:
-                cv=ExpandingWindowSplitter(initial_window=win_len, step_length=step_len, 
-                                           fh=fh)
+                cv=ExpandingWindowSplitter(initial_window = win_len, 
+                                           step_length = step_len, 
+                                           fh = fh)
             
             if show_window_graphs:
                 plot_windows(cv=cv, y=y)
