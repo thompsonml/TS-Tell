@@ -176,10 +176,39 @@ class TS_Tell():
 
     # PUBLIC methods
     def get_input_ts(self) -> float:
-        """Get Input Time Series
+        """Get the Input Time Series
 
         """
         return self.input_ts
+
+
+    def set_input_ts(self, updated_ts):
+        """Set the Input Time Series
+        
+        Set `self.input_ts` to the updated Time Series, `updated_ts`
+        
+        """
+        self.input_ts = updated_ts
+        print("The input time series for `{}` has been " \
+                    "updated.\n".format(self.ts_name))
+
+    
+    def get_exog_ts(self) -> float:
+        """Get the Exogenous Time Series
+
+        """
+        return self.exog
+
+    
+    def set_exog_ts(self, exog_ts):
+        """Set Exogenous ime Series
+        
+        Set `self.exog` to the updated Exogenous Time Series, `exog_ts`
+
+        """
+        self.exog = exog_ts
+        print("The input Exogenous time series for `{}` has been " \
+                    "updated.\n".format(self.ts_name))
 
     
     def get_season_length(self) -> int:
@@ -195,20 +224,10 @@ class TS_Tell():
         Update Season Length to `new_seas_len`
 
         """
+        old_val = self.season_length
         self.season_length = new_seas_len
-        print("The season length for `{}` has been " \
-                    "updated.\n".format(self.ts_name))
-
-    
-    def set_input_ts(self, updated_ts):
-        """Set Input Time Series
-
-        Set the updated Time Series to `self.input_ts`
-
-        """
-        self.input_ts = updated_ts
-        print("The input time series for `{}` has been " \
-                    "updated.\n".format(self.ts_name))
+        print("The season length for `{}` has been updated from {} to " \
+                    "{}.\n".format(self.ts_name, old_val, self.season_length))
 
     
     def get_models_dict(self):
@@ -239,17 +258,24 @@ class TS_Tell():
                 
 
     def get_trend_dataframe(self, 
+                            ts: pd.Series,
                             time_feats: bool=False,
                             time_dummies: bool=False,
                             lags_diffs: bool=False,
                             season_len: int=None
                             ) -> pd.DataFrame:
-        """Get a Trend Dataframe with an option for time features
+
+        """Get a Trend Dataframe with an option for time features such as week,
+        month, quarter, etc., as well as options to dummy these features and
+        perform lag, diff, and % diff operations
 
         * NOTE: `time_dummies` cannot execute if `time_feats` is False
         
         Parameters
         ----------
+        ts : pd.Series
+            The time series to process, parameterized to be able to pass a time
+            series other than self.input_ts, for instance self.exog
         time_feats : bool default False
             Whether or not to return time-based features
         time_dummies : bool default False
@@ -258,7 +284,7 @@ class TS_Tell():
             Whether or not to build lag, diff, and % diff covariates
         season_len : int default None
             To supply a custom season length. As a convenience, if not
-            specified then `self.season_len` is used.
+            specified then `self.season_len` is used
         
         Raises
         ------
@@ -291,7 +317,7 @@ class TS_Tell():
             raise ValueError("`time_dummies` cannot be True if "
                                 "`time_feats` is False")
 
-        df = pd.DataFrame(self.input_ts)
+        df = pd.DataFrame(ts)
         df.columns = ['y']
 
         # basic time features
@@ -306,14 +332,16 @@ class TS_Tell():
             if time_dummies:
                 cols = ["week", "month", "quarter", "year"]
                 df = pd.get_dummies(df, columns=cols, dtype=int)
-
-        # lags, diffs, and pct diffs
+            
+        # lags, diffs, and pct diffs            
         if lags_diffs:
+            if not season_len:
+                season_len = self.season_length
             # lags
-            for i in range(self.season_length + 1):
+            for i in range(season_len + 1):
                 df["lag_" + str(i + 1)] = df['y'].shift(i + 1)
                 # diffs, pct_diffs
-                for j in range(1, self.season_length + 2):
+                for j in range(1, season_len + 2):
                     if i <= j and i != j:
                         df["diff_" + str(i) + "_" + str(j)] = \
                             df['y'].shift(i) - df['y'].shift(j)
@@ -674,6 +702,7 @@ class TS_Tell():
         months or quarters tend to be around one another. As in, the Q1 values
         tend to be lowest for the year, but all hover around a local average.
         Similarly for months, as well.
+        
         """
         allowed_list = ["Box", "Swarm", "Both"]
         if kind not in allowed_list:
@@ -774,7 +803,6 @@ class TS_Tell():
 
         Notes
         -----
-
         
         """
         df = self.get_smoothed_imputation(return_df=True)
@@ -968,13 +996,10 @@ class TS_Tell():
         df["outlier_z"] = np.where(df["y_imp_out_z"] != df["y_imp"], 1, 0)
 
         # IFF extreme standardized pct diff
-        
 
         # @TODO TEST
         if backcast:
             df = df[::-1]
-
-        
 
         # GRAPHING
         fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
