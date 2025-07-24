@@ -680,19 +680,22 @@ class TS_Tell():
         plt.show()
 
 
-    def get_timegrouped_plots(self, 
+    def get_timegrouped_plots(self,
                               kind: str="Both",
                               quarters: bool=True) -> None:
         """Get Time-Grouped Plots
 
         Parameters
         ----------
+        ts : pd.Series default None
+            The time series to build the grouped plots upon
         kind : string {"Box", "Swarm", "Both"} default "Box"
+            Which kind of plot to produce
         quarters : bool default True
             Whether or not to group by Quarters (else Months)
 
         Errors
-        ------
+        ------get_timegrouped_plots
         ValueError
             Raised if the parameter `kind` is not passed one of the key words
             
@@ -709,7 +712,7 @@ class TS_Tell():
             raise ValueError('The value for `kind` must be one of '
                              '"Box", "Swarm", or "Both"')
 
-        trend_df = self.get_trend_dataframe(time_feats=True)
+        trend_df = self.get_trend_dataframe(self.input_ts, time_feats=True)
         if quarters:    
             time_group = "quarter"
         else:
@@ -932,7 +935,7 @@ class TS_Tell():
         Examine https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html 
         
         """
-        df = self.get_trend_dataframe()
+        df = self.get_trend_dataframe(self.input_ts)
         # impute any missings with 1 to ensure full series
         df["y_mi"] = df['y'].fillna(1)
 
@@ -1135,9 +1138,9 @@ class TS_Tell():
         """
         if n_lags==None:
             n_lags = self.season_length
-        df = self.get_trend_dataframe()
+        df = self.get_trend_dataframe(self.input_ts)
         lag_dict = {}
-        for i in range(1, n_lags + 1):
+        for i in range(1, n_lags + 2):
             ols = sm.OLS.from_formula('y ~ y.shift(' + str(i) + ')', df).fit()
             lag_dict[i] = ols.pvalues[1:].item()
         lag_sig_dict = {key: value for key, value in lag_dict.items() if 
@@ -1182,7 +1185,7 @@ class TS_Tell():
         is significant, then there is evidence* of Trend in y. This method works
         for a fairly monotically increasing (or decreasing) Trend. The Trend 
         does not have to be `perfectly` monotonic, but--as a linear test--it
-        must not vacillate.
+        must not vacillate too greatly.
         
         The residuals from this regression now represent the input time series
         "de-trended."
@@ -1192,7 +1195,7 @@ class TS_Tell():
         
         """
         print("### LINEAR TREND TEST ###")
-        df = self.get_trend_dataframe(time_feats=True)
+        df = self.get_trend_dataframe(self.input_ts, time_feats=True)
         ols = sm.OLS(df.y, sm.add_constant(df.t)).fit()
         print(ols.summary())
         linear_trend_pval = ols.pvalues[1:].item()
@@ -1215,7 +1218,7 @@ class TS_Tell():
         The Hodrick-Prescott filter 
 
         """
-        df = self.get_trend_dataframe()
+        df = self.get_trend_dataframe(self.input_ts)
         cycle, trend = sm.tsa.filters.hpfilter(self.input_ts, 
                                                self._get_hp_lambda())
         df["cycle"] = cycle
@@ -1279,7 +1282,7 @@ class TS_Tell():
         """
         print("### NON-LINEAR TREND TEST ###")
         
-        df = self.get_trend_dataframe(time_feats=True)
+        df = self.get_trend_dataframe(self.input_ts, time_feats=True)
         df["t_sqr"] = df['t'] ** 2
         
         Xs = ['t', "t_sqr"]
@@ -1455,7 +1458,7 @@ class TS_Tell():
         them, this method can identify multiple seasonalities independently.
         
         """
-        df = self.get_trend_dataframe(time_feats=True)
+        df = self.get_trend_dataframe(self.input_ts, time_feats=True)
         
         seasonalities_df = pd.DataFrame()
         
