@@ -258,7 +258,7 @@ class TS_Tell():
                 
 
     def get_trend_dataframe(self, 
-                            ts: pd.Series,
+                            ts: pd.Series=None,
                             time_feats: bool=False,
                             time_dummies: bool=False,
                             lags_diffs: bool=False,
@@ -273,9 +273,10 @@ class TS_Tell():
         
         Parameters
         ----------
-        ts : pd.Series
+        ts : pd.Series default None
             The time series to process, parameterized to be able to pass a time
-            series other than self.input_ts, for instance self.exog
+            series other than self.input_ts, for instance self.exog. As a con-
+            venience, if not specified then `self.input_ts` is used
         time_feats : bool default False
             Whether or not to return time-based features
         time_dummies : bool default False
@@ -284,7 +285,7 @@ class TS_Tell():
             Whether or not to build lag, diff, and % diff covariates
         season_len : int default None
             To supply a custom season length. As a convenience, if not
-            specified then `self.season_len` is used
+            specified then `self.season_len` is used by the method
         
         Raises
         ------
@@ -316,6 +317,9 @@ class TS_Tell():
         if time_dummies and not time_feats:
             raise ValueError("`time_dummies` cannot be True if "
                                 "`time_feats` is False")
+
+        if ts is None:
+            ts = self.input_ts
 
         df = pd.DataFrame(ts)
         df.columns = ['y']
@@ -549,7 +553,7 @@ class TS_Tell():
         this nuance.
 
         """
-        df = pd.DataFrame(self.input_ts)
+        df = pd.DataFrame() #pd.DataFrame(self.input_ts)
         df['y'] = df.iloc[:, 0:]
         df["missing"] = np.where(df['y'].isnull()==True, 1, 0)
         df['y'] = df['y'].interpolate(method='polynomial', order=5,
@@ -712,7 +716,7 @@ class TS_Tell():
             raise ValueError('The value for `kind` must be one of '
                              '"Box", "Swarm", or "Both"')
 
-        trend_df = self.get_trend_dataframe(self.input_ts, time_feats=True)
+        trend_df = self.get_trend_dataframe(time_feats=True) #self.get_trend_dataframe(self.input_ts, time_feats=True)
         if quarters:    
             time_group = "quarter"
         else:
@@ -935,7 +939,7 @@ class TS_Tell():
         Examine https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html 
         
         """
-        df = self.get_trend_dataframe(self.input_ts)
+        df = self.get_trend_dataframe() #self.get_trend_dataframe(self.input_ts)
         # impute any missings with 1 to ensure full series
         df["y_mi"] = df['y'].fillna(1)
 
@@ -1138,7 +1142,7 @@ class TS_Tell():
         """
         if n_lags==None:
             n_lags = self.season_length
-        df = self.get_trend_dataframe(self.input_ts)
+        df = self.get_trend_dataframe() #self.get_trend_dataframe(self.input_ts)
         lag_dict = {}
         for i in range(1, n_lags + 2):
             ols = sm.OLS.from_formula('y ~ y.shift(' + str(i) + ')', df).fit()
@@ -1195,7 +1199,7 @@ class TS_Tell():
         
         """
         print("### LINEAR TREND TEST ###")
-        df = self.get_trend_dataframe(self.input_ts, time_feats=True)
+        df = self.get_trend_dataframe(time_feats=True) #self.get_trend_dataframe(self.input_ts, time_feats=True)
         ols = sm.OLS(df.y, sm.add_constant(df.t)).fit()
         print(ols.summary())
         linear_trend_pval = ols.pvalues[1:].item()
@@ -1218,7 +1222,7 @@ class TS_Tell():
         The Hodrick-Prescott filter 
 
         """
-        df = self.get_trend_dataframe(self.input_ts)
+        df = self.get_trend_dataframe() #self.get_trend_dataframe(self.input_ts)
         cycle, trend = sm.tsa.filters.hpfilter(self.input_ts, 
                                                self._get_hp_lambda())
         df["cycle"] = cycle
@@ -1282,7 +1286,7 @@ class TS_Tell():
         """
         print("### NON-LINEAR TREND TEST ###")
         
-        df = self.get_trend_dataframe(self.input_ts, time_feats=True)
+        df = self.get_trend_dataframe(time_feats=True) # self.get_trend_dataframe(self.input_ts, time_feats=True)
         df["t_sqr"] = df['t'] ** 2
         
         Xs = ['t', "t_sqr"]
@@ -1458,7 +1462,7 @@ class TS_Tell():
         them, this method can identify multiple seasonalities independently.
         
         """
-        df = self.get_trend_dataframe(self.input_ts, time_feats=True)
+        df = self.get_trend_dataframe(time_feats=True)
         
         seasonalities_df = pd.DataFrame()
         
@@ -1494,12 +1498,16 @@ class TS_Tell():
 
 
     def get_train_test(self, 
+                       ts : pd.Series=None,
                        train_test_pct_or_n: float=0.95,
                        show_graph: bool=False) -> Tuple:
         """Get Train/Test split
 
         Parameters
         ----------
+        ts : pd.Series default None
+            The pd.Series to treat as the time series of interest. As a 
+            convenience, defaulted to `self.input_ts` by the method
         train_test_pct_or_n : float default 0.95
             The pct or n to apply to the Train set. If [0, 1], then treated as
             a percentage and if < 50% then treated as Test. If > 1, then 
@@ -1527,6 +1535,8 @@ class TS_Tell():
         to forecast several days (i.e., more than a month) into the future.
         
         """
+        if ts is None:
+            ts = self.input_ts
         
         if train_test_pct_or_n > 0 and train_test_pct_or_n < 1:
             if train_test_pct_or_n < 0.5:
@@ -1544,7 +1554,7 @@ class TS_Tell():
             raise ValueError("The value for `train_test_pct_or_n` cannot be " \
                                  "equal to 1 or less than or equal to 0")
             
-        train, test = self.input_ts[:train_n], self.input_ts[train_n:]
+        train, test = ts[:train_n], ts[train_n:]
         train.index.freq = self._get_data_freq()
         test.index.freq = self._get_data_freq()
 
@@ -1563,23 +1573,6 @@ class TS_Tell():
             plt.show()
         
         return train, test
-
-
-    def get_traintest_plot(self, train_test_pct_or_n: float=None):
-        """Get a plot of Train + Test
-
-        Parameters
-        ----------
-        train_test_pct_or_n : float default None
-
-        """
-        if train_test_pct_or_n != None:
-            train, test = self.get_train_test(train_test_pct_or_n)
-        else:
-            train, test = self.get_train_test(get_train_test)
-        fig, ax = plot_series(train, test, labels=["train", "test"])
-        ax.grid()
-        plt.show()
 
 
     def get_profile_trend(self):
@@ -1771,11 +1764,11 @@ class TS_Tell():
             * NOTE: has no effect when `use_full` is True
         season_len : int default None
             The length of the cyclical season. Set to None, but as a convenience
-            defaulted to self.season_length
+            defaulted to self.season_length by the method.
         win_len : int default None
             The length of the modeling window. For Expanding, this is the length
             of the initial window only. Defaulted to None, but as a convenience
-            set to half the input time series length.
+            set to half the input time series length by the method.
         fh : int default range(2)
             The length of the forecasting horizon
         scoring_metric : str {"MAPE", "MdAPE", "sMAPE", "sMdAPE"} default "MAPE"
@@ -1816,15 +1809,17 @@ class TS_Tell():
     
         if use_full:
             y = self.input_ts
+            exog = self.exog
         else:
-            y, _ = self.get_train_test(train_test_pct_or_n)
+            y_train, y_test = self.get_train_test(train_test_pct_or_n)
+            X_train, X_test = self.get_train_test(train_test_pct_or_n=train_test_pct_or_n, ts=self.exog)
     
         if scoring_metric in ["MAPE", "sMAPE"]:
             eval_scorer = MeanAbsolutePercentageError(symmetric=score_sym)
         elif scoring_metric in ["MdAPE", "sMdAPE"]:
             eval_scorer = MedianAbsolutePercentageError(symmetric=score_sym)
         else:
-            raise Exception("A misspelling or an inappropriate scoring " + \
+            raise ValueError("A misspelling or an inappropriate scoring " + \
                             "metric was used. Please use one of `MAPE`," + \
                             "`sMAPE`, `MdAPE`, or `sMdAPE`.")
     
@@ -1845,6 +1840,7 @@ class TS_Tell():
             results = evaluate(
                 forecaster=model_spec,
                 y=y,
+                X=self.exog,
                 cv=cv, 
                 scoring=eval_scorer,
                 return_data=True,
