@@ -122,14 +122,18 @@ class TS_Tell():
                 
 
     # PRIVATE methods
-    def _get_data_freq(self) -> str:
+    def _get_data_freq(self, ts: pd.Series=None) -> str:
         """Private method to get the frequency of the input time series
         
         """
-        self.data_freq = pd.infer_freq(self.input_ts.index)
-        return self.data_freq
+        if ts is None:
+            ts = self.input_ts
+        #self.data_freq = pd.infer_freq(ts.index)
+        #return self.data_freq
+        data_freq = pd.infer_freq(ts.index)
+        return data_freq
 
-    
+
     def _get_hp_lambda(self) -> int:
         """Private method to get the value for the Hodrick-Prescott Lambda
 
@@ -149,7 +153,7 @@ class TS_Tell():
         return hp_lambda
 
     
-    def _get_WMA(self, s, period) -> float:
+    def _get_WMA(self, ts, period) -> float:
         """Private method to get the Weighted Moving Average
 
         References
@@ -157,12 +161,12 @@ class TS_Tell():
         [1] https://stackoverflow.com/questions/64500904/how-to-calculate-hull-moving-average-in-python
 
         """
-        return s.rolling(period).apply(lambda x: 
+        return ts.rolling(period).apply(lambda x: 
                         ((np.arange(period)+1)*x).sum() / 
                                       (np.arange(period)+1).sum(), raw=True)
 
     
-    def _get_HMA(self, s, period) -> float:
+    def _get_HMA(self, ts, period) -> float:
         """Private method to get Hull's Moving Average
 
         References
@@ -170,8 +174,8 @@ class TS_Tell():
         [1] https://stackoverflow.com/questions/64500904/how-to-calculate-hull-moving-average-in-python
         
         """
-        return self._get_WMA(self._get_WMA(s, period // 2
-                ).multiply(2).sub(self._get_WMA(s, period)), int(np.sqrt(period)))
+        return self._get_WMA(self._get_WMA(ts, period // 2
+                ).multiply(2).sub(self._get_WMA(ts, period)), int(np.sqrt(period)))
         
 
     # PUBLIC methods
@@ -1755,7 +1759,7 @@ class TS_Tell():
         Parameters
         ----------
         model_spec
-            The model-specific specifications for a specific model
+            The model specification for the algorithm used to model
         use_full : bool default True
             Whether or not to Window over the entire time series (Full: Train +
             Test) or just Train
@@ -1811,8 +1815,10 @@ class TS_Tell():
             y = self.input_ts
             exog = self.exog
         else:
-            y_train, y_test = self.get_train_test(train_test_pct_or_n)
-            X_train, X_test = self.get_train_test(train_test_pct_or_n=train_test_pct_or_n, ts=self.exog)
+            y, _ = self.get_train_test(train_test_pct_or_n=
+                                                  train_test_pct_or_n)
+            exog, _ = self.get_train_test(ts=self.exog, train_test_pct_or_n=
+                                                  train_test_pct_or_n)
     
         if scoring_metric in ["MAPE", "sMAPE"]:
             eval_scorer = MeanAbsolutePercentageError(symmetric=score_sym)
@@ -1840,7 +1846,7 @@ class TS_Tell():
             results = evaluate(
                 forecaster=model_spec,
                 y=y,
-                X=self.exog,
+                X=exog,
                 cv=cv, 
                 scoring=eval_scorer,
                 return_data=True,
