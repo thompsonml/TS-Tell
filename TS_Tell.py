@@ -796,32 +796,6 @@ class TS_Tell():
             plt.show()
                 
 
-    # @TODO 
-    #def get_outliers_autoencoder(self,
-    #                             smooth_imp: bool=True,
-    #                             ) -> Optional[pd.DataFrame]: 
-        """Get outliers via a Variational AutoEncoder 
-        --------------------------------------------------------------------------------        
-        Parameters
-        ----------
-        smooth_imp : bool default True
-            Whether or not to use results from `get_smoothed_imputation`
-        
-
-        Returns
-        -------
-        
-
-        Notes
-        -----
-        
-        """
-     #   df = self.get_smoothed_imputation(return_df=True)
-     #   smoothed_series = df[["y_imp_out_smooth"]]
-
-      #  return smoothed_series
-
-    
     def get_smoothed_imputation(self, 
                                 smoother: str="WE",
                                 smooth_order: int=3,
