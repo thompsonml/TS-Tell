@@ -797,9 +797,9 @@ class TS_Tell():
                 
 
     # @TODO 
-    def get_outliers_autoencoder(self,
-                                 smooth_imp: bool=True,
-                                 ) -> Optional[pd.DataFrame]: 
+    #def get_outliers_autoencoder(self,
+    #                             smooth_imp: bool=True,
+    #                             ) -> Optional[pd.DataFrame]: 
         """Get outliers via a Variational AutoEncoder 
         --------------------------------------------------------------------------------        
         Parameters
@@ -816,10 +816,10 @@ class TS_Tell():
         -----
         
         """
-        df = self.get_smoothed_imputation(return_df=True)
-        smoothed_series = df[["y_imp_out_smooth"]]
+     #   df = self.get_smoothed_imputation(return_df=True)
+     #   smoothed_series = df[["y_imp_out_smooth"]]
 
-        return smoothed_series
+      #  return smoothed_series
 
     
     def get_smoothed_imputation(self, 
@@ -842,9 +842,9 @@ class TS_Tell():
             or Savitsky-Golay ("SG")
         smooth_order : int default 3
             The order (power) to raise the function for smoothing. For *most* 
-            series, the default value (3) is a good starting value - much
-            lower and you just get the original series and much higher results
-            in a approximates nearly a straight line
+            series, the default value (3) is a good smoothing value - much
+            higher and you just get the original series and much lower results
+            tends to approximate a straight line
         extrema_std : float default 4
             The std dev beyond which values may be extrema
         critical_z : float, default 2.326
@@ -943,7 +943,7 @@ class TS_Tell():
         Examine https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html 
         
         """
-        df = self.get_trend_dataframe() #self.get_trend_dataframe(self.input_ts)
+        df = self.get_trend_dataframe()
         # impute any missings with 1 to ensure full series
         df["y_mi"] = df['y'].fillna(1)
 
@@ -1007,6 +1007,7 @@ class TS_Tell():
         df["outlier_z"] = np.where(df["y_imp_out_z"] != df["y_imp"], 1, 0)
 
         # IFF extreme standardized pct diff
+        
 
         # @TODO TEST
         if backcast:
@@ -1098,10 +1099,12 @@ class TS_Tell():
                                      )], axis=1)
         else:
             df = pd.concat([actuals, 
-                            pd.Series(yn, x, name="predicted")], axis=1)      
+                            pd.Series(yn, x, name="predicted")], axis=1)
+
+        df["ape"] = abs((df["predicted"] / df['y']) - 1) * 100
     
         fig, ax = plt.subplots(figsize=plt.figaspect(0.3), layout="tight")
-        plt.title("Modeled Projection")
+        plt.title("Modeled Projection: MAPE = {:.1f}%".format(df["ape"].mean()))
         plt.plot(x, y, 'o', c='k', label='Actual', alpha=0.67)
         x_ticks = np.arange(int(min(x)), int(max(x)) + 1)
         if pred_steps:
