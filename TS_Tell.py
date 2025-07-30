@@ -801,7 +801,9 @@ class TS_Tell():
                                 smooth_order: int=3,
                                 extrema_std: int=3,
                                 critical_z: float=2.326,
+                                pct_diff_outlier_thresh: float=0.995,
                                 backcast: bool=False,
+                                print_graphs: bool=True,
                                 return_df: bool=False) -> Optional[pd.DataFrame]:
         """Get a smoothed, imputed version of the input Time Series
 
@@ -816,19 +818,25 @@ class TS_Tell():
             or Savitsky-Golay ("SG")
         smooth_order : int default 3
             The order (power) to raise the function for smoothing. For *most* 
-            series, the default value (3) is a good smoothing value - much
-            higher and you just get the original series and much lower results
-            tends to approximate a straight line
+            series, the default value (3) is a good balance between the extremes
+            of a straight line (when `smooth_order`==1) and the original curve
+            (`smooth_order values 10+)
         extrema_std : float default 4
             The std dev beyond which values may be extrema
         critical_z : float, default 2.326
             The Z-value to consider for extrema/outliers/anomolies (2.326 is 
             the top/bottom 1% - see Notes for some typical values or consult
             a Critical Z chart online / in a textbook
+        pct_diff_outlier_thresh : float default 0.995
+            The percentile threshold above and below which `pct_diff` values
+            of `y_imp` will be considered an outlier. Defaulted to 0.995 which
+            identifies the top and bottom 1/2 percent
         backcast : bool default False
             Whether or not to utilize backcasting to impute points at the
-            beginning of the time series.
-        return_df : bool default False
+            beginning of the time series
+        print_graphs : bool default True
+            Whether or not to print the graph
+        eturn_df : bool default False
             Whether or not to return the results via a pd.DataFrame
 
         Notes
@@ -860,22 +868,30 @@ class TS_Tell():
             The original input time series with imputed values
         y_imp_out_smooth : float
             `y` with outliers smoothed (pulled back to extreme boundary)
-        outlier_smooth : int
-            1 if `y_imp` was imputed based upon the smoother, 0 if not
+        outlier_smooth : bool
+            1 if `y_imp` was identified as an outlier based upon the smoother, 
+            0 if not
         z : float
             The standardized z-value of `y_imp`
         y_imp_out_z : float
             `y` with outliers imputed back to the smoothed bounds
         outlier_z : int
-            1 if `y_imp` was imputed based upon the z-value, 0 if not
+            1 if `y_imp` was identified as an outlier based upon the z-value, 
+            0 if not
+        pct_diff : float
+            The percent difference between `y_imp` and its previous value:
+            (('y_imp' / 'y_imp'.shift()) - 1) * 100
+        outlier_pct_diff : bool
+            1 if `y_imp` was imputed based upon `pct_diff` percentile, 0 if not
 
         Raises
         ------
         ValueError
-            If the value passed to `smoother` is not:
+            Raised if the value passed to `smoother` is not:
                 - 'WE'
                 - 'SG'
-            ..then a ValueError is raised
+        ValueError
+            Raised if the value passed to `pct_diff_outlier_thresh` is not (0, 1)
 
         Notes
         -----
@@ -916,14 +932,15 @@ class TS_Tell():
         -------
         Examine https://chemometrics.readthedocs.io/en/stable/examples/whittaker.html 
         
-        """
+        """            
+        # pct diff outlier thresh
+        if not 0 < pct_diff_outlier_thresh < 1:
+            raise ValueError("The value for `pct_diff_outlier_thresh` must be "
+                             "greater than 0 and less than 1")
+            
         df = self.get_trend_dataframe()
         # impute any missings with 1 to ensure full series
         df["y_mi"] = df['y'].fillna(1)
-
-        # @TODO TEST
-        if backcast:
-            df = df[::-1]
 
         # smoother choice
         if smoother=="WE":
@@ -940,6 +957,10 @@ class TS_Tell():
         else:
             raise ValueError("The type of smoother passed must be one of "
                     "``WE`` or ``SG``")
+
+        # @TODO TEST
+        if backcast:
+            df = df[::-1]
 
         # calc the upper and lower bounds of the smoothed time series
         df["hi_bound"] = df["smoothed_ts"]+df["smoothed_ts"].std()*extrema_std
@@ -981,39 +1002,51 @@ class TS_Tell():
         df["outlier_z"] = np.where(df["y_imp_out_z"] != df["y_imp"], 1, 0)
 
         # IFF extreme standardized pct diff
-        
+        df["pct_diff"] = df['y_imp'] / df['y_imp'].shift() - 1
+        df["outlier_pct_diff"] = np.where(
+            ((df["pct_diff"] < df["pct_diff"].quantile(1 - 
+                pct_diff_outlier_thresh)) | (df["pct_diff"] > df[
+                        "pct_diff"].quantile(pct_diff_outlier_thresh))), 1, 0)
 
         # @TODO TEST
         if backcast:
             df = df[::-1]
 
-        # GRAPHING
-        fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
-        ax = df['y'].plot(alpha=0.8, marker='o')
-        if df['y'].isnull().sum() > 0:
-            ax = df.query("y.isnull()==True")["y_imp"].plot(ax=ax, marker='o', 
-                                                    ls='', label="Imputed Value")
-        df["smoothed_ts"].plot(ax=ax, c='g', label=smooth_kind)
-        styling = {"color": "peru", "ls": '--', "marker": 'o', 
-                   "markersize": 1.5, "alpha": 0.3}
-        df["hi_bound"].plot(**styling, 
-                            label=f"Hi Bound + ({extrema_std}$\sigma$)")
-        df["lo_bound"].plot(**styling, 
-                            label=f"Lo Bound - ({extrema_std}$\sigma$)")
-        if df["outlier_smooth"].sum() > 0:
-            ax = df.query("outlier_smooth.eq(1)")["y_imp_out_smooth"].plot(
-                    ax=ax, marker='P', c='peru', ls='', label="Smoothed Outlier"
-            )
-        if df["outlier_z"].sum() > 0:
-            ax = df.query("outlier_z.eq(1)")["y"].plot(
-                    ax = ax, ls='', label="Z-Outlier", marker='o', mfc='none',
-                    mec='r', ms=16
-            )
-            
-        plt.suptitle("Curve Shape, Imputation, and Possible Extrema", fontsize=11)
-        plt.legend(fontsize=8, ncol=5)
-        plt.grid()
-        plt.show()
+        # graphing
+        if print_graphs:
+            fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), 
+                                   layout="tight")
+            ax = df['y'].plot(alpha=0.8, marker='o')
+            if df['y'].isnull().sum() > 0:
+                ax = df.query("y.isnull()==True")["y_imp"].plot(ax=ax, 
+                                    marker='o', ls='', label="Imputed Value")
+            df["smoothed_ts"].plot(ax=ax, c='g', label=smooth_kind)
+            styling = {"color": "peru", "ls": '--', "marker": 'o', 
+                       "markersize": 1.5, "alpha": 0.3}
+            df["hi_bound"].plot(**styling, 
+                                label=f"Hi Bound + ({extrema_std}$\sigma$)")
+            df["lo_bound"].plot(**styling, 
+                                label=f"Lo Bound - ({extrema_std}$\sigma$)")
+            if df["outlier_smooth"].sum() > 0:
+                ax = df.query("outlier_smooth.eq(1)")["y_imp_out_smooth"].plot(
+                   ax=ax, marker='P', c='peru', ls='', label="Smoothed Outlier"
+                )
+            if df["outlier_z"].sum() > 0:
+                ax = df.query("outlier_z.eq(1)")["y"].plot(
+                        ax = ax, ls='', label="Z Outlier", marker='o', 
+                        mfc='none', mec='r', ms=16
+                )
+            if df["outlier_pct_diff"].sum() > 0:
+                ax = df.query("outlier_pct_diff.eq(1)")["y"].plot(
+                        ax = ax, ls='', label="Pct Diff Outlier", marker='s', 
+                        mfc='none', mec='tab:purple', ms=16
+                )
+                
+            plt.suptitle("Curve Shape, Imputation, and Possible Extrema", 
+                         fontsize=11)
+            plt.legend(fontsize=8, ncol=4)
+            plt.grid()
+            plt.show()
 
         if return_df:
             return df
@@ -1481,7 +1514,7 @@ class TS_Tell():
     def get_train_test(self, 
                        ts : pd.Series=None,
                        train_test_pct_or_n: float=0.95,
-                       show_graph: bool=False) -> Tuple:
+                       print_graph: bool=False) -> Tuple:
         """Get Train/Test split
 
         Parameters
@@ -1494,8 +1527,8 @@ class TS_Tell():
             a percentage and if < 50% then treated as Test. If > 1, then 
             treated as N. Same applies to N - if the int passed is < 50% of
             the observations, the treated as test.
-        show_graph : bool default False
-            Whether or not to graph the Train/Test split
+        print_graph : bool default False
+            Whether or not to print the the Train/Test split graph
 
         Returns
         -------
@@ -1539,7 +1572,7 @@ class TS_Tell():
         train.index.freq = self._get_data_freq()
         test.index.freq = self._get_data_freq()
 
-        if show_graph:
+        if print_graph:
             fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
             ax = train.plot(marker='o', c='blue', label="Train", alpha=0.67)
             ax = test.plot(ax = ax, marker='o', c='orange', label="Test", 
@@ -2064,7 +2097,7 @@ class TS_Tell():
         self.get_model_seasonalities()
         print()
         self.get_train_test(train_test_pct_or_n=train_test_pct_or_n, 
-                            show_graph=True)
+                            print_graph=True)
         print()
         if auto_models:
             self.get_auto_models(train_test_pct_or_n=train_test_pct_or_n,
