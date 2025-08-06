@@ -119,6 +119,11 @@ class TS_Tell():
                     "DatetimeIndex. The conversion of the Index on the "
                     "input time series using `pd.to_datetime()` was "
                     "attempted but failed.")
+
+
+    @staticmethod
+    def test_static_method(x: float, y: float):
+        return x + y
                 
 
     # PRIVATE methods
@@ -771,7 +776,7 @@ class TS_Tell():
             ax[0].boxplot(x=[group.values for name, group in grouped],
                        tick_labels=grouped.groups.keys())
             ax[0].set_ylabel('')
-            ax[0].set_xlabel(time_group)
+            ax[0].set_xlabel(time_group.title())
             ax[0].grid()
             
             ax[1].set_title("Swarm Plot")
