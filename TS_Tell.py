@@ -133,8 +133,6 @@ class TS_Tell():
         """
         if ts is None:
             ts = self.input_ts
-        #self.data_freq = pd.infer_freq(ts.index)
-        #return self.data_freq
         data_freq = pd.infer_freq(ts.index)
         return data_freq
 
@@ -539,40 +537,55 @@ class TS_Tell():
 
 
     def get_missing_imputation(self, 
+                               miss_imp_val: float=None,
+                               poly_order: int=3,
                                print_graph: bool=True) -> pd.DataFrame:
         """Get time series missing imputation
 
-        Use this method when a value is missing to impute
+        Use this method to impute a value when missing
 
         Parameters
         ----------
+        miss_imp_val : float default None
+            The value to assign missing, if necessary, for the rare case of
+            needing a very specific value represent all missings
+        poly_order : int default 5
+            The order of the polynomial to curve-fit
         print_graph : bool default True
             Whether or not to print out the graph 
 
         Returns
         -------
-        input_ts : float
+        y : float
             The input time series imputed to fill in missing values
+        missing : bool
+            Whether or not the `y` value was missing
+        y_mi : float
+            The imputed 
 
         Notes
         -----
-        Utilizes quadratic interpolation to fill in missing data points. Since
+        Utilizes polynomial interpolation to fill in missing data points. Since
         Since time series data are temporal (i.e., adjacent values are more 
         alike than non-adjacent values), a typical random imputation will miss 
         this nuance.
 
         """
-        df = pd.DataFrame() #pd.DataFrame(self.input_ts)
-        df['y'] = df.iloc[:, 0:]
+        df = pd.DataFrame(self.input_ts)
+        df.rename(columns={df.columns[0]: 'y'}, inplace=True)
         df["missing"] = np.where(df['y'].isnull()==True, 1, 0)
-        df['y'] = df['y'].interpolate(method='polynomial', order=5,
-                                      limit_direction="both")
-
+        if miss_imp_val is None:
+            df['y_mi'] = df['y'].interpolate(method='polynomial', 
+                                             order=poly_order,
+                                             limit_direction="both")
+        else:
+            df['y_mi'] = df['y'].fillna(miss_imp_val)
+            
         if print_graph:
             plt.title(self.ts_name)
             ax = df['y'].plot(alpha=0.75, marker='o')
-            ax = df.query("missing==1")['y'].plot(ax=ax, marker='o', ls='', 
-                                                  label="Imputed Value")
+            ax = df.query("missing==1")['y_mi'].plot(ax=ax, marker='o', ls='', 
+                                                     label="Imputed Value")
             plt.legend()
             plt.show()
             
@@ -804,7 +817,10 @@ class TS_Tell():
     def get_smoothed_imputation(self, 
                                 smoother: str="WE",
                                 smooth_order: int=3,
+                                miss_imp_val: float=None,
                                 extrema_std: int=3,
+                                add_imp_randvar: bool=False,                                
+                                curve_damper: float=2,
                                 critical_z: float=2.326,
                                 pct_diff_outlier_thresh: float=0.995,
                                 backcast: bool=False,
@@ -814,7 +830,11 @@ class TS_Tell():
 
         Use the parameters to create a smoother, imputed series to further
         analyze and/or model. Imputes missing values if any exist prior to
-        curve fitting.
+        curve fitting. Culminates in a new series that has been adjusted
+        by curve smoothing, imputed missings, and had extreme values pulled
+        back within std dev limits:
+        
+            `y_imp_out_smooth`
                 
         Parameters
         ----------
@@ -823,11 +843,23 @@ class TS_Tell():
             or Savitsky-Golay ("SG")
         smooth_order : int default 3
             The order (power) to raise the function for smoothing. For *most* 
-            series, the default value (3) is a good balance between the extremes
-            of a straight line (when `smooth_order`==1) and the original curve
-            (`smooth_order values 10+)
+            series, the default value (3) is a good balance between extremes
+            such as a straight line (`smooth_order`==1) and the original curve
+            (`smooth_order values`==10+)
+        miss_imp_val : float default None
+            The value to assign missing, if necessary. `get_missing_imputation`
+            is called to impute, but this could be used for the rare case of
+            needing a very specific value represent all missings.
         extrema_std : float default 4
             The std dev beyond which values may be extrema
+        add_imp_randvar : bool default False
+            Whether or not to add random variation to the estimated curve
+            before imputation.
+        curve_damper : float default 2
+            NOTE: has no effect when `add_imp_randvar` is False
+            The scale factor that dampens the the random variation applied to
+            the smoothed time series. The lower the number passed, the higher 
+            the variability. The higher the number, the greater the dampening.
         critical_z : float, default 2.326
             The Z-value to consider for extrema/outliers/anomolies (2.326 is 
             the top/bottom 1% - see Notes for some typical values or consult
@@ -841,7 +873,7 @@ class TS_Tell():
             beginning of the time series
         print_graphs : bool default True
             Whether or not to print the graph
-        eturn_df : bool default False
+        return_df : bool default False
             Whether or not to return the results via a pd.DataFrame
 
         Notes
@@ -896,7 +928,9 @@ class TS_Tell():
                 - 'WE'
                 - 'SG'
         ValueError
-            Raised if the value passed to `pct_diff_outlier_thresh` is not (0, 1)
+
+            Raised if the value passed to `pct_diff_outlier_thresh` is not 
+            (0, 1)
 
         Notes
         -----
@@ -921,9 +955,9 @@ class TS_Tell():
         preserves at least some of the information of that value being extreme.
         As in, while it does lessen the degree of extremity, it's only doing so
         for the purpose of making the function *behave* better for modeling and
-        analysis. This is contrast with methods that pull extreme values back to
-        mean point of the curve, thereby diluting any inherent information in
-        that value.
+        analysis. This is contrast with methods that pull extreme values back 
+        to mean point of the curve, thereby diluting any inherent information 
+        in that value.
 
         References
         ----------
@@ -943,9 +977,9 @@ class TS_Tell():
             raise ValueError("The value for `pct_diff_outlier_thresh` must be "
                              "greater than 0 and less than 1")
             
-        df = self.get_trend_dataframe()
-        # impute any missings with 1 to ensure full series
-        df["y_mi"] = df['y'].fillna(1)
+        # impute missings to get a better smoothing function estimate
+        df = self.get_missing_imputation(miss_imp_val=miss_imp_val, 
+                                         print_graph=False)
 
         # smoother choice
         if smoother=="WE":
@@ -971,16 +1005,20 @@ class TS_Tell():
         df["hi_bound"] = df["smoothed_ts"]+df["smoothed_ts"].std()*extrema_std
         df["lo_bound"] = df["smoothed_ts"]-df["smoothed_ts"].std()*extrema_std
 
-        # add some random variation to the smoother
-        df["random_var"] = np.random.normal(loc=0, 
-                                            scale=df["y_mi"].std()/3, 
-                                            size=len(df))
-        df["smoothed_ts_random_var"] = df["smoothed_ts"] + df["random_var"]
+        # alternatively add some random variation to the smoother 
+        if add_imp_randvar:
+            df["random_var"] = np.random.normal(loc=0, 
+                                                scale=df["y_mi"].std()/curve_damper, 
+                                                size=len(df))
+            df["smoothed_ts_random_var"] = df["smoothed_ts"] + df["random_var"]            
+            ### NOTE: strongly consider making this the average of 100/1000/+ runs
 
-        # impute using the smoothed time series with some random variation
-        df["y_imp"] = df['y'].fillna(df["smoothed_ts_random_var"])
+            # impute using the smoothed time series with some random variation
+            df["y_imp"] = df['y'].fillna(df["smoothed_ts_random_var"])
+        else:
+            df["y_imp"] = df['y'].fillna(df["smoothed_ts"])
 
-        # PULL OUTLIERS BACK TO SMOOTHED TS BOUND
+        # PULL OUTLIERS BACK TO SMOOTHED BOUND
         # IFF above/below bounds
         df["y_imp_out_smooth"] = np.where(df["y_imp"] > df["hi_bound"], 
                                           df["hi_bound"],
@@ -1021,17 +1059,21 @@ class TS_Tell():
         if print_graphs:
             fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), 
                                    layout="tight")
-            ax = df['y'].plot(alpha=0.8, marker='o')
+            ax = df['y'].plot(alpha=0.8, marker='o', label="Orig Time Series")
             if df['y'].isnull().sum() > 0:
                 ax = df.query("y.isnull()==True")["y_imp"].plot(ax=ax, 
                                     marker='o', ls='', label="Imputed Value")
             df["smoothed_ts"].plot(ax=ax, c='g', label=smooth_kind)
+            if add_imp_randvar:
+                df["smoothed_ts_random_var"].plot(ax=ax, c='silver', ls='--', 
+                                                  label="Smooth + Ran Var", 
+                                                  alpha=0.75)
             styling = {"color": "peru", "ls": '--', "marker": 'o', 
                        "markersize": 1.5, "alpha": 0.3}
             df["hi_bound"].plot(**styling, 
-                                label=f"Hi Bound + ({extrema_std}$\sigma$)")
+                                label=f"Hi Bound (+{extrema_std}$\sigma$)")
             df["lo_bound"].plot(**styling, 
-                                label=f"Lo Bound - ({extrema_std}$\sigma$)")
+                                label=f"Lo Bound (-{extrema_std}$\sigma$)")
             if df["outlier_smooth"].sum() > 0:
                 ax = df.query("outlier_smooth.eq(1)")["y_imp_out_smooth"].plot(
                    ax=ax, marker='P', c='peru', ls='', label="Smoothed Outlier"
