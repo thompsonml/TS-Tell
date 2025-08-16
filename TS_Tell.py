@@ -65,7 +65,7 @@ class TS_Tell():
     def __init__(self, 
                  ts_name: str,
                  input_ts: pd.Series, 
-                 season_length: int=52,
+                 season_length: int,
                  exog: Union[pd.Series, pd.DataFrame]=None
                 ):
         """Default constructor of the TS_Tell class
@@ -76,7 +76,7 @@ class TS_Tell():
             The name given to the time series
         input_ts : pd.Series, float
             The input time series - Index should be `DatetimeIndex` (see Notes)
-        season_length : int, default 52
+        season_length : int
             The maximum value of the season / cycle (12 for monthly, 52 for 
             weekly, 4 for quarterly, 7 for daily, 168 for hourly, etc.)
         exog : Union[pd.Series, pd.DataFrame] default None
@@ -127,16 +127,6 @@ class TS_Tell():
                 
 
     # PRIVATE methods
-    def _get_data_freq(self, ts: pd.Series=None) -> str:
-        """Private method to get the frequency of the input time series
-        
-        """
-        if ts is None:
-            ts = self.input_ts
-        data_freq = pd.infer_freq(ts.index)
-        return data_freq
-
-
     def _get_hp_lambda(self) -> int:
         """Private method to get the value for the Hodrick-Prescott Lambda
 
@@ -152,7 +142,7 @@ class TS_Tell():
                           'W': 1600 * 12**4,
                           'D': 1600 * (365/4)**4,
                          }
-        hp_lambda = hp_lambda_dict[self._get_data_freq()[:1]]
+        hp_lambda = hp_lambda_dict[self.get_data_freq()[:1]]
         return hp_lambda
 
     
@@ -198,6 +188,16 @@ class TS_Tell():
         self.input_ts = updated_ts
         print("The input time series for `{}` has been " \
                     "updated.\n".format(self.ts_name))
+
+
+    def get_data_freq(self, ts: pd.Series=None) -> str:
+        """Get the frequency of the input time series
+        
+        """
+        if ts is None:
+            ts = self.input_ts
+        data_freq = pd.infer_freq(ts.index)
+        return data_freq
 
     
     def get_exog_ts(self) -> float:
@@ -268,6 +268,7 @@ class TS_Tell():
                             ts: pd.Series=None,
                             time_feats: bool=False,
                             time_dummies: bool=False,
+                            remove_lowers: bool=False,
                             lags_diffs: bool=False,
                             season_len: int=None
                             ) -> pd.DataFrame:
@@ -288,6 +289,11 @@ class TS_Tell():
             Whether or not to return time-based features
         time_dummies : bool default False
             Whether or not to return time-based features in dummy form
+        remove_lowers : bool default False
+            Whether or not to remove data frequencies below the level of the
+            input time series. E.G., if at the Monthly level, remove all the
+            `week` features or if quarterly remove all the 'week` and `month`
+            features, etc.
         lags_diffs : bool default False
             Whether or not to build lag, diff, and % diff covariates
         season_len : int default None
@@ -297,7 +303,7 @@ class TS_Tell():
         Raises
         ------
         ValueError
-           If `time_dummies` is True and `time_feats` is false
+            If `time_dummies` is True and `time_feats` is false
 
         Returns
         -------
@@ -305,11 +311,11 @@ class TS_Tell():
             The input time series
         t : int
             An ever-increasing integer representing time
-        week : int
+        week : int <optional>
             The week number of the year
-        month : int
+        month : int <optional>
             The month number of the year
-        quarter : int
+        quarter : int <optional>
             The quarter number of the year
         year : int
             The year of the input time series
@@ -337,13 +343,33 @@ class TS_Tell():
             df["week"] = df.index.isocalendar().week.astype(int)
             df["month"] = df.index.month.astype(int)
             df["quarter"] = df.index.quarter.astype(int)
+            df["half_yr"] = np.where(df.index.month.astype(int) < 7, 1, 2)
             df["year"] = df.index.year.astype(int)
 
             # dummies for each time feature
             if time_dummies:
-                cols = ["week", "month", "quarter", "year"]
+                cols = ["week", "month", "quarter", "half_year", "year"]                    
+                # remove lower levels of data for features that have no meaning
+                if remove_lowers:
+                    data_level = self.get_data_freq()[:1]
+                    if data_level == 'A':
+                        cols = ["year"]               
+                    elif data_level == '6':
+                        cols = ["half_yr", "year"]
+                    elif data_level == 'Q':
+                        cols = ["quarter", "half_yr", "year"]
+                    elif data_level == 'M':
+                        cols = ["month", "quarter", "half_yr", "year"]
+                    elif data_level == 'W':
+                        cols = ["week", "month", "quarter", "half_yr", "year"]
+                    else:
+                        print("*** WARNING: A data frequency level was " +
+                                  "encountered that has not been coded " +
+                                  f"around: {data_level}\n" +
+                              "*** NOTE: Continuing with week-level features.")
+
                 df = pd.get_dummies(df, columns=cols, dtype=int)
-            
+
         # lags, diffs, and pct diffs            
         if lags_diffs:
             if not season_len:
@@ -490,7 +516,7 @@ class TS_Tell():
         lb_df = acorr_ljungbox(self.input_ts, lags=self.season_length)
         lb_pval = lb_df.loc[self.season_length][1:].item()
         adf, kpss, pp, d_adf, d_kpss, d_pp = self.get_stationarity_tests()
-        metrics = [self.n_obs, n_miss, self._get_data_freq(), max, min, 
+        metrics = [self.n_obs, n_miss, self.get_data_freq(), max, min, 
                    mean, std, skew, kurt, yj_lambda, lb_pval,
                    adf, kpss, pp, d_adf, d_kpss, d_pp]
         if print_messages:
@@ -889,6 +915,8 @@ class TS_Tell():
         -------
         y : float
             The original input time series
+        missing : int
+            A binary indicator denoting which rows were originally missing
         y_mi : float
             `y` plus 1 imputed for missing values
         smooth_ts : float
@@ -1293,7 +1321,7 @@ class TS_Tell():
         df["trend"].plot(ax=ax, ls='--', lw=2)
         plt.title("Trend: Hodrick-Prescott Filter ($\lambda$=" \
                 "{:,d}, TS Frequency='{}')".format(self._get_hp_lambda(), 
-                                                   self._get_data_freq()),
+                                                   self.get_data_freq()),
                                                    fontsize=11)
         plt.grid()
         plt.show()
@@ -1616,8 +1644,8 @@ class TS_Tell():
                                  "equal to 1 or less than or equal to 0")
             
         train, test = ts[:train_n], ts[train_n:]
-        train.index.freq = self._get_data_freq()
-        test.index.freq = self._get_data_freq()
+        train.index.freq = self.get_data_freq()
+        test.index.freq = self.get_data_freq()
 
         if print_graph:
             fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")

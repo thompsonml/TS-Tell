@@ -1,5 +1,21 @@
 from setuptools import setup, find_packages
 
+required_pkgs = [
+    "datetime",   
+    "calendar",   
+    "typing",   
+    "warnings",   
+    "pandas",   
+    "numpy",   
+    "scipy",   
+    "whittaker_eilers",   
+    "matplotlib",   
+    "seaborn",   
+    "arch",   
+    "statsmodels",   
+    "sktime",
+    ]
+
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
@@ -13,10 +29,8 @@ setup(
     author='Matt Thompson',
     author_email='GoBucksFromVA@gmail.com',
     packages=find_packages(),
-    install_requires=[
-        #'dependency1',
-        #'dependency2>=1.0',
-    ],
+    license="MIT",
+    install_requires=required_pkgs,
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',
