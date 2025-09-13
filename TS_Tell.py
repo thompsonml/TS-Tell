@@ -478,13 +478,11 @@ class TS_Tell():
             Normal distrubtion as possible. Some important values (approximate)
             would be as follows:
             
-                | ----- | ----------- |
                 | Value |  Transform  |
                 | ----- | ----------- |
                 |  0.0  | LN          |
                 |  0.5  | Square Root |
                 |  1.0  | Normal      |
-                | ----- | ----------- |                
 
             Stepping back, the whole reason data are transformed is to remedy
             some or multiple aspects of "ill-behaving" data. Not that `y` needs 
@@ -621,19 +619,19 @@ class TS_Tell():
     def get_autocorr_plots(self) -> None:
         """Get AutoCorr Plots
         
-        Get the combo plots: Time Series, PACF, and AC
+        Get the combo plots: Time Series, PACF, and ACF
 
         Notes
         -----
-        PACF: the number of possible AR term(s)
-        ACF: the number of possible MA term(s)
-        Early Lags: <generally> 0, 1, 2
-        Late Lags: 12, 24, 36, etc. - typically, for monthly data> - will also 
+        - PACF: the number of possible AR terms
+        - ACF: the number of possible MA terms
+        - Early Lags: <generally> 0, 1, 2
+        - Late Lags: 12, 24, 36, etc. - typically, for monthly data - will also 
             sometimes oscillate between positive and negative (i.e., across the 
             x-axis where 12 may be negative and 24 is positive)
-        ARIMA: typically sees an Early Lag on either PACF or ACF
-        SARIMA: generally exhibits both and Early Lag and a Late Lag
-        - Note: this does not mean `multiple` seasonalities, where a signal
+        - ARIMA: typically sees an Early Lag on either PACF or ACF
+        - SARIMA: generally exhibits both and Early Lag and a Late Lag
+        * Note: this does not mean `multiple` seasonalities, where a signal
             may demonstrate (as an example) both hourly and weekly 
             seasonalities
 
@@ -850,8 +848,8 @@ class TS_Tell():
                                 critical_z: float=2.326,
                                 pct_diff_outlier_thresh: float=0.995,
                                 backcast: bool=False,
-                                print_graphs: bool=True,
-                                return_df: bool=False) -> Optional[pd.DataFrame]:
+                                print_graphs: bool=False,
+                                return_df: bool=True) -> Optional[pd.DataFrame]:
         """Get a smoothed, imputed version of the input Time Series
 
         Use the parameters to create a smoother, imputed series to further
@@ -897,9 +895,9 @@ class TS_Tell():
         backcast : bool default False
             Whether or not to utilize backcasting to impute points at the
             beginning of the time series
-        print_graphs : bool default True
+        print_graphs : bool default False
             Whether or not to print the graph
-        return_df : bool default False
+        return_df : bool default True
             Whether or not to return the results via a pd.DataFrame
 
         Notes
@@ -1598,7 +1596,7 @@ class TS_Tell():
             The pd.Series to treat as the time series of interest. As a 
             convenience, defaulted to `self.input_ts` by the method
         train_test_pct_or_n : float default 0.95
-            The pct or n to apply to the Train set. If [0, 1], then treated as
+            The pct or n to apply to the Train set. If (0, 1), then treated as
             a percentage and if < 50% then treated as Test. If > 1, then 
             treated as N. Same applies to N - if the int passed is < 50% of
             the observations, the treated as test.
@@ -1833,10 +1831,10 @@ class TS_Tell():
                              season_len: int=None,
                              win_len: int=None,
                              step_len: int=1,
-                             fh: int=range(2),
-                             scoring_metric: str="MAPE",
+                             fh: int=range(4),
+                             scoring_metric: str="sMAPE",
                              expo: bool=False,
-                             show_window_graphs: bool=True,
+                             show_graphs: bool=False,
                              return_dfs: bool=True) -> Optional[Tuple[pd.DataFrame, pd.DataFrame]]:
         """
         Model performance Windowing via Sliding and Expanding
@@ -1858,13 +1856,13 @@ class TS_Tell():
             The length of the modeling window. For Expanding, this is the length
             of the initial window only. Defaulted to None, but as a convenience
             set to half the input time series length by the method.
-        fh : int default range(2)
+        fh : int default range(4)
             The length of the forecasting horizon
         scoring_metric : str {"MAPE", "MdAPE", "sMAPE", "sMdAPE"} default "MAPE"
             The scoring metric
         expo : bool default False
             Whether or not to exponentiate to see actual unit performance
-        show_window_graphs : bool default True
+        show_graphs : bool default True
             Whether or not to print the Sliding and Window graphs
         return_dfs : bool default True
             Whether or not to return the dataframe entry
@@ -1925,7 +1923,7 @@ class TS_Tell():
                                            step_length = step_len, 
                                            fh = fh)
             
-            if show_window_graphs:
+            if show_graphs:
                 plot_windows(cv=cv, y=y)
             
             results = evaluate(
@@ -1971,28 +1969,29 @@ class TS_Tell():
         
         results_sliding = window_results(True)
         results_expand = window_results(False)
-    
-        # Performance plot
-        fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
-        plt.plot(results_sliding["cutoff"], results_sliding[scoring_metric]*100, 
-                 marker='o', label="Sliding")
-        plt.plot(results_expand["cutoff"], results_expand[scoring_metric]*100, 
-                 marker='o', label="Expanding")
-        plt.legend()
-        plt.xticks(rotation=45)
-        plt.axhline(y=results_sliding[scoring_metric].mean()*100, ls='--', 
-                    c='tab:blue')
-        plt.axhline(y=results_expand[scoring_metric].mean()*100, ls='--',
-                    c='tab:orange')
-        plt.title("Average {}:\nSliding: {:0.1f}%  Expanding: {:0.1f}%".format(
-                        scoring_metric,
-                        results_sliding[scoring_metric].mean()*100, 
-                        results_expand[scoring_metric].mean()*100
-                        )
-                 )
-        plt.ylabel(scoring_metric)
-        plt.xlabel("Date")
-        plt.show()
+
+        if show_graphs:
+            # Performance plot
+            fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
+            plt.plot(results_sliding["cutoff"], results_sliding[scoring_metric]*100, 
+                     marker='o', label="Sliding")
+            plt.plot(results_expand["cutoff"], results_expand[scoring_metric]*100, 
+                     marker='o', label="Expanding")
+            plt.legend()
+            plt.xticks(rotation=45)
+            plt.axhline(y=results_sliding[scoring_metric].mean()*100, ls='--', 
+                        c='tab:blue')
+            plt.axhline(y=results_expand[scoring_metric].mean()*100, ls='--',
+                        c='tab:orange')
+            plt.title("Average {}:\nSliding: {:0.1f}%  Expanding: {:0.1f}%".format(
+                            scoring_metric,
+                            results_sliding[scoring_metric].mean()*100, 
+                            results_expand[scoring_metric].mean()*100
+                            )
+                     )
+            plt.ylabel(scoring_metric)
+            plt.xlabel("Date")
+            plt.show()
         
         if return_dfs:
             return (results_sliding, results_expand)
@@ -2181,3 +2180,17 @@ class TS_Tell():
         
         elapsed_time = datetime.datetime.now() - start_time
         print("TOTAL PROFILE TIME: {}".format(elapsed_time))
+
+
+    def get_master_models(self, 
+                         ):
+        """Get Master Models
+
+        Run a series of methods to model using multiple transformations
+
+        Parameters
+        ----------
+        
+        """
+        
+        self.model_perf_windowing()
