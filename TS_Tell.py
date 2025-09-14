@@ -66,6 +66,7 @@ class TS_Tell():
                  ts_name: str,
                  input_ts: pd.Series, 
                  season_length: int,
+                 forecast_length: int=None,
                  exog: Union[pd.Series, pd.DataFrame]=None
                 ):
         """Default constructor of the TS_Tell class
@@ -79,6 +80,9 @@ class TS_Tell():
         season_length : int
             The maximum value of the season / cycle (12 for monthly, 52 for 
             weekly, 4 for quarterly, 7 for daily, 168 for hourly, etc.)
+        forecast_length : int default None
+            The length of the forecast window, defaulted to `None` when only
+            analysis or decision support are needed
         exog : Union[pd.Series, pd.DataFrame] default None
             Optional exogeneous regressor(s) to explain / better predict
 
@@ -100,6 +104,7 @@ class TS_Tell():
         self.ts_name = ts_name
         self.input_ts = input_ts
         self.season_length = season_length
+        self.forecast_length = forecast_length
         self.exog = exog
 
         # additional objects
@@ -127,14 +132,21 @@ class TS_Tell():
                 
 
     # PRIVATE methods
-    def _get_hp_lambda(self) -> int:
+    def _get_hp_lambda(self, data_freq=None) -> int:
         """Private method to get the value for the Hodrick-Prescott Lambda
+
+        Parameters
+        ----------
+        data_freq : str default None
+            The frequency of the data
 
         References
         ----------
         [1] https://www.stata.com/manuals/tstsfilterhp.pdf
             - P. 8, first paragraph
         """
+        if data_freq == None:
+            d_f = self.get_data_freq()[:1]
         hp_lambda_dict = {'A': 1600/4**4,
                           "6": 100,
                           'Q': 1600,
@@ -142,7 +154,7 @@ class TS_Tell():
                           'W': 1600 * 12**4,
                           'D': 1600 * (365/4)**4,
                          }
-        hp_lambda = hp_lambda_dict[self.get_data_freq()[:1]]
+        hp_lambda = hp_lambda_dict[d_f]
         return hp_lambda
 
     
@@ -1303,23 +1315,24 @@ class TS_Tell():
     def get_trend_plot(self) -> None:
         """Get a visual plot of the Hodrick-Prescott filter for Trend
     
-        Notes
-        -----
-        @TODO
-        The Hodrick-Prescott filter 
-
         """
-        df = self.get_trend_dataframe() #self.get_trend_dataframe(self.input_ts)
+        df = self.get_trend_dataframe()
+        data_freq = self.get_data_freq()
+        hp_lamba = self._get_hp_lamba()
         cycle, trend = sm.tsa.filters.hpfilter(self.input_ts, 
-                                               self._get_hp_lambda())
+                                               #self._get_hp_lambda()
+                                               hp_lamba
+                                               )
         df["cycle"] = cycle
         df["trend"] = trend
         fig, ax = plt.subplots(figsize=(13, 5))
         df['y'].plot(ax=ax, alpha=0.75)
         df["trend"].plot(ax=ax, ls='--', lw=2)
-        plt.title("Trend: Hodrick-Prescott Filter ($\lambda$=" \
-                "{:,d}, TS Frequency='{}')".format(self._get_hp_lambda(), 
-                                                   self.get_data_freq()),
+        plt.title("Trend: Hodrick-Prescott Filter ($\lambda$=)" \
+                "{:,d}, TS Frequency='{}')").format(#self._get_hp_lambda(), 
+                                                   hp_lamba,
+                                                   #self.get_data_freq()),
+                                                   data_freq,
                                                    fontsize=11)
         plt.grid()
         plt.show()
@@ -1902,6 +1915,11 @@ class TS_Tell():
                                                   train_test_pct_or_n)
             exog, _ = self.get_train_test(ts=self.exog, train_test_pct_or_n=
                                                   train_test_pct_or_n)
+
+        if expo:
+            y = np.log(y)
+            if self.exog != None:
+                exog = np.log(exog)
     
         if scoring_metric in ["MAPE", "sMAPE"]:
             eval_scorer = MeanAbsolutePercentageError(symmetric=score_sym)
