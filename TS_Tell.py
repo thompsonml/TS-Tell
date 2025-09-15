@@ -573,8 +573,9 @@ class TS_Tell():
 
 
     def get_missing_imputation(self, 
+                               ts: float=None,
                                miss_imp_val: float=None,
-                               poly_order: int=3,
+                               poly_order: int=5,
                                print_graph: bool=True) -> pd.DataFrame:
         """Get time series missing imputation
 
@@ -582,6 +583,9 @@ class TS_Tell():
 
         Parameters
         ----------
+        ts : float
+            The time series to impute. As a convenience, set to None to send
+            any time time series but defaults to `self.input_ts` otherwise
         miss_imp_val : float default None
             The value to assign missing, if necessary, for the rare case of
             needing a very specific value represent all missings
@@ -607,7 +611,9 @@ class TS_Tell():
         this nuance.
 
         """
-        df = pd.DataFrame(self.input_ts)
+        if ts == None:
+            ts = self.input_ts
+        df = pd.DataFrame(ts)
         df.rename(columns={df.columns[0]: 'y'}, inplace=True)
         df["missing"] = np.where(df['y'].isnull()==True, 1, 0)
         if miss_imp_val is None:
@@ -851,15 +857,17 @@ class TS_Tell():
                 
 
     def get_smoothed_imputation(self, 
+                                ts: float=None,
+                                inital_imp: bool=True,
+                                miss_imp_val: float=None,
                                 smoother: str="WE",
                                 smooth_order: int=3,
-                                miss_imp_val: float=None,
                                 extrema_std: int=3,
                                 add_imp_randvar: bool=False,                                
                                 curve_damper: float=2,
                                 critical_z: float=2.326,
                                 pct_diff_outlier_thresh: float=0.995,
-                                backcast: bool=False,
+                                reverse_cast: bool=False,
                                 print_graphs: bool=False,
                                 return_df: bool=True) -> Optional[pd.DataFrame]:
         """Get a smoothed, imputed version of the input Time Series
@@ -874,6 +882,16 @@ class TS_Tell():
                 
         Parameters
         ----------
+        ts : float
+            The time series of interest. As a convenience, `self.input_ts`
+            is passed if None.
+        initial_imp : bool default True
+            Perform an initial imputation using polynomial smoothing via
+            scipy through Pandas.
+        miss_imp_val : float default None
+            The value to assign missing, if necessary. `get_missing_imputation`
+            is called to impute, but this could be used for the rare case of
+            needing a very specific value represent all missings.
         smoother : str {"WE", "SG"} default "WE"
             The smoother to use, either Whittaker-Eilers ("WE") <default>
             or Savitsky-Golay ("SG")
@@ -882,10 +900,6 @@ class TS_Tell():
             series, the default value (3) is a good balance between extremes
             such as a straight line (`smooth_order`==1) and the original curve
             (`smooth_order values`==10+)
-        miss_imp_val : float default None
-            The value to assign missing, if necessary. `get_missing_imputation`
-            is called to impute, but this could be used for the rare case of
-            needing a very specific value represent all missings.
         extrema_std : float default 4
             The std dev beyond which values may be extrema
         add_imp_randvar : bool default False
@@ -904,8 +918,8 @@ class TS_Tell():
             The percentile threshold above and below which `pct_diff` values
             of `y_imp` will be considered an outlier. Defaulted to 0.995 which
             identifies the top and bottom 1/2 percent
-        backcast : bool default False
-            Whether or not to utilize backcasting to impute points at the
+        reverse_cast : bool default False
+            Whether or not to utilize reverse casting to impute points at the
             beginning of the time series
         print_graphs : bool default False
             Whether or not to print the graph
@@ -914,12 +928,12 @@ class TS_Tell():
 
         Notes
         -----
-        The `backcast` parameter is extremely helpful when differencing and/
-        or lagging is/are employed. The first few observations are lost since 
-        the calculation requires data prior to the earliest date provided.
-        Typically, if not lost, the value(s) is/are imputed with the mean.        
-        This flips the data and imputes using the natural curve of the time
-        series, then flips the data back to the correct order.
+        The `reverse_cast` parameter is extremely helpful when differencing 
+        and/or lagging is/are employed. The first few observations are lost 
+        since the calculation requires data prior to the earliest date provided
+        and either lost, or imputed with the mean. This flips the data and 
+        imputes using the natural curve of the time series, then flips the data 
+        back to the correct order.
 
         Returns
         -------
@@ -1014,10 +1028,14 @@ class TS_Tell():
         if not 0 < pct_diff_outlier_thresh < 1:
             raise ValueError("The value for `pct_diff_outlier_thresh` must be "
                              "greater than 0 and less than 1")
-            
+
         # impute missings to get a better smoothing function estimate
         df = self.get_missing_imputation(miss_imp_val=miss_imp_val, 
                                          print_graph=False)
+
+        # @TODO TEST
+        if reverse_cast:
+            df = df[::-1]
 
         # smoother choice
         if smoother=="WE":
@@ -1034,10 +1052,6 @@ class TS_Tell():
         else:
             raise ValueError("The type of smoother passed must be one of "
                     "``WE`` or ``SG``")
-
-        # @TODO TEST
-        if backcast:
-            df = df[::-1]
 
         # calc the upper and lower bounds of the smoothed time series
         df["hi_bound"] = df["smoothed_ts"]+df["smoothed_ts"].std()*extrema_std
@@ -1090,7 +1104,7 @@ class TS_Tell():
                         "pct_diff"].quantile(pct_diff_outlier_thresh))), 1, 0)
 
         # @TODO TEST
-        if backcast:
+        if reverse_cast:
             df = df[::-1]
 
         # graphing
@@ -1845,6 +1859,7 @@ class TS_Tell():
                              win_len: int=None,
                              step_len: int=1,
                              fh: int=range(4),
+                             sliding_expanding: str="sliding",
                              scoring_metric: str="sMAPE",
                              expo: bool=False,
                              show_graphs: bool=False,
@@ -1871,8 +1886,10 @@ class TS_Tell():
             set to half the input time series length by the method.
         fh : int default range(4)
             The length of the forecasting horizon
+        sliding_expanding : {"sliding", "expanding", "both"} default "sliding"
+            Whether to use a sliding peformance window, expanding, or both
         scoring_metric : str {"MAPE", "MdAPE", "sMAPE", "sMdAPE"} default "MAPE"
-            The scoring metric
+            The scoring metric to evaluate performance
         expo : bool default False
             Whether or not to exponentiate to see actual unit performance
         show_graphs : bool default True
@@ -1984,37 +2001,78 @@ class TS_Tell():
                 mape_list.append(mape_window)
             results[scoring_metric] = mape_list
             return results
-        
-        results_sliding = window_results(True)
-        results_expand = window_results(False)
 
+        if sliding_expanding == "both":
+            results_sliding = window_results(True)
+            results_expanding = window_results(False)
+        elif sliding_expanding == "sliding":
+            results_sliding = window_results(True)
+        elif sliding_expanding == "expanding":
+            results_expanding = window_results(False)
+        else:
+            pass
+            
         if show_graphs:
             # Performance plot
             fig, ax = plt.subplots(1, figsize=plt.figaspect(0.3), layout="tight")
-            plt.plot(results_sliding["cutoff"], results_sliding[scoring_metric]*100, 
-                     marker='o', label="Sliding")
-            plt.plot(results_expand["cutoff"], results_expand[scoring_metric]*100, 
-                     marker='o', label="Expanding")
+            if sliding_expanding == "both":
+                plt.plot(results_sliding["cutoff"], 
+                         results_sliding[scoring_metric]*100, 
+                         marker='o', label="Sliding")
+                plt.plot(results_expand["cutoff"], 
+                         results_expanding[scoring_metric]*100, 
+                         marker='o', label="Expanding")
+                plt.axhline(y=results_sliding[scoring_metric].mean()*100, 
+                            ls='--', c='tab:blue')
+                plt.axhline(y=results_expanding[scoring_metric].mean()*100, 
+                            ls='--', c='tab:orange')
+                plt.title("Average {}:\nSliding: {:0.1f}%  Expanding: {:0.1f}%".format(
+                                scoring_metric,
+                                results_sliding[scoring_metric].mean()*100, 
+                                results_expanding[scoring_metric].mean()*100
+                                )
+                         )
+            elif sliding_expanding == "sliding":
+                plt.plot(results_sliding["cutoff"], 
+                         results_sliding[scoring_metric]*100, 
+                         marker='o', label="Sliding")
+                plt.axhline(y=results_sliding[scoring_metric].mean()*100, 
+                            ls='--', c='tab:blue')
+                plt.title("Average {}:\nSliding: {:0.1f}%  Expanding: {:0.1f}%".format(
+                                scoring_metric,
+                                results_sliding[scoring_metric].mean()*100, 
+                                )
+                         )
+            elif sliding_expanding == "expanding":
+                plt.plot(results_expand["cutoff"], 
+                         results_expanding[scoring_metric]*100, 
+                         marker='o', label="Expanding")
+                plt.axhline(y=results_expanding[scoring_metric].mean()*100, 
+                            ls='--', c='tab:orange')
+                plt.title("Average {}:\nSliding: {:0.1f}%  Expanding: {:0.1f}%".format(
+                                scoring_metric,
+                                results_expanding[scoring_metric].mean()*100
+                                )
+                         )
+            else:
+                pass
             plt.legend()
             plt.xticks(rotation=45)
-            plt.axhline(y=results_sliding[scoring_metric].mean()*100, ls='--', 
-                        c='tab:blue')
-            plt.axhline(y=results_expand[scoring_metric].mean()*100, ls='--',
-                        c='tab:orange')
-            plt.title("Average {}:\nSliding: {:0.1f}%  Expanding: {:0.1f}%".format(
-                            scoring_metric,
-                            results_sliding[scoring_metric].mean()*100, 
-                            results_expand[scoring_metric].mean()*100
-                            )
-                     )
             plt.ylabel(scoring_metric)
             plt.xlabel("Date")
             plt.show()
         
         if return_dfs:
-            return (results_sliding, results_expand)
+            if sliding_expanding == "both":
+                return (results_sliding, results_expand)            
+            elif sliding_expanding == "slide":
+                return results_sliding
+            elif sliding_expanding == "expanding":
+                return results_expand
+            else:
+                pass
 
-        
+
     def get_auto_models(self, 
                         eval_method: str="InOutFull",
                         train_test_pct_or_n: float=0.80,
