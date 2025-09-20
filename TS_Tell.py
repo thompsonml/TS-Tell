@@ -575,8 +575,7 @@ class TS_Tell():
     def get_missing_imputation(self, 
                                ts: float=None,
                                miss_imp_val: float=None,
-                               poly_order: int=5,
-                               print_graph: bool=True) -> pd.DataFrame:
+                               print_graph: bool=False) -> pd.DataFrame:
         """Get time series missing imputation
 
         Use this method to impute a value when missing
@@ -589,9 +588,7 @@ class TS_Tell():
         miss_imp_val : float default None
             The value to assign missing, if necessary, for the rare case of
             needing a very specific value represent all missings
-        poly_order : int default 5
-            The order of the polynomial to curve-fit
-        print_graph : bool default True
+        print_graph : bool default False
             Whether or not to print out the graph 
 
         Returns
@@ -611,18 +608,17 @@ class TS_Tell():
         this nuance.
 
         """
-        if ts == None:
+        if ts is None:
             ts = self.input_ts
         df = pd.DataFrame(ts)
         df.rename(columns={df.columns[0]: 'y'}, inplace=True)
         df["missing"] = np.where(df['y'].isnull()==True, 1, 0)
+        
         if miss_imp_val is None:
-            df['y_mi'] = df['y'].interpolate(method='polynomial', 
-                                             order=poly_order,
-                                             limit_direction="both")
+            df['y_mi'] = df['y'].interpolate(limit_direction="both")
         else:
             df['y_mi'] = df['y'].fillna(miss_imp_val)
-            
+
         if print_graph:
             plt.title(self.ts_name)
             ax = df['y'].plot(alpha=0.75, marker='o')
@@ -632,6 +628,32 @@ class TS_Tell():
             plt.show()
             
         return df
+
+
+    def get_lagdiff_imputation(self, ts: pd.Series=None) -> pd.Series:
+        """Get Lag/Diff Imputation
+    
+        Impute the 1st observation that results from taking a Lag or a Diff
+    
+        Parameters
+        ----------
+        ts : pd.Series default None
+            The input time series to perform imputation upon - defaulted to None
+            to pass any series but, as a convenience, None defaults to `self.input_ts`
+            
+        """
+
+        if ts is None:
+            ts = self.input_ts
+        trend_df = self.get_trend_dataframe(ts=ts, time_feats=True)
+        # filter down to only years with both Q1 AND Q2 observations
+        filtered_df = trend_df.query("half_yr.eq(1)").groupby(["year", 
+                                    "half_yr"]).filter(lambda x: len(x) == 2)
+        # obtain the ratio of Q1 / Q2 to yield a better imputation estimate        
+        pct_of = filtered_df.query("quarter.eq(1)").sum()['y'] / + \
+                    filtered_df.query("quarter.eq(2)").sum()['y']
+        trend_df['y'] = trend_df['y'].fillna(trend_df['y'].shift(-1) * pct_of)
+        return trend_df['y']
         
     
     def get_autocorr_plots(self) -> None:
@@ -763,7 +785,7 @@ class TS_Tell():
             Whether or not to group by Quarters (else Months)
 
         Errors
-        ------get_timegrouped_plots
+        ------
         ValueError
             Raised if the parameter `kind` is not passed one of the key words
             
@@ -780,7 +802,7 @@ class TS_Tell():
             raise ValueError('The value for `kind` must be one of '
                              '"Box", "Swarm", or "Both"')
 
-        trend_df = self.get_trend_dataframe(time_feats=True) #self.get_trend_dataframe(self.input_ts, time_feats=True)
+        trend_df = self.get_trend_dataframe(time_feats=True)
         if quarters:    
             time_group = "quarter"
         else:
@@ -858,7 +880,6 @@ class TS_Tell():
 
     def get_smoothed_imputation(self, 
                                 ts: float=None,
-                                inital_imp: bool=True,
                                 miss_imp_val: float=None,
                                 smoother: str="WE",
                                 smooth_order: int=3,
@@ -867,7 +888,6 @@ class TS_Tell():
                                 curve_damper: float=2,
                                 critical_z: float=2.326,
                                 pct_diff_outlier_thresh: float=0.995,
-                                reverse_cast: bool=False,
                                 print_graphs: bool=False,
                                 return_df: bool=True) -> Optional[pd.DataFrame]:
         """Get a smoothed, imputed version of the input Time Series
@@ -885,9 +905,6 @@ class TS_Tell():
         ts : float
             The time series of interest. As a convenience, `self.input_ts`
             is passed if None.
-        initial_imp : bool default True
-            Perform an initial imputation using polynomial smoothing via
-            scipy through Pandas.
         miss_imp_val : float default None
             The value to assign missing, if necessary. `get_missing_imputation`
             is called to impute, but this could be used for the rare case of
@@ -918,22 +935,10 @@ class TS_Tell():
             The percentile threshold above and below which `pct_diff` values
             of `y_imp` will be considered an outlier. Defaulted to 0.995 which
             identifies the top and bottom 1/2 percent
-        reverse_cast : bool default False
-            Whether or not to utilize reverse casting to impute points at the
-            beginning of the time series
         print_graphs : bool default False
             Whether or not to print the graph
         return_df : bool default True
             Whether or not to return the results via a pd.DataFrame
-
-        Notes
-        -----
-        The `reverse_cast` parameter is extremely helpful when differencing 
-        and/or lagging is/are employed. The first few observations are lost 
-        since the calculation requires data prior to the earliest date provided
-        and either lost, or imputed with the mean. This flips the data and 
-        imputes using the natural curve of the time series, then flips the data 
-        back to the correct order.
 
         Returns
         -------
@@ -1030,13 +1035,12 @@ class TS_Tell():
                              "greater than 0 and less than 1")
 
         # impute missings to get a better smoothing function estimate
-        df = self.get_missing_imputation(miss_imp_val=miss_imp_val, 
+        if ts is None:
+            ts = self.input_ts
+
+        df = self.get_missing_imputation(ts=ts, miss_imp_val=miss_imp_val, 
                                          print_graph=False)
-
-        # @TODO TEST
-        if reverse_cast:
-            df = df[::-1]
-
+        
         # smoother choice
         if smoother=="WE":
             df["smoothed_ts"] = WhittakerSmoother(self.season_length, 
@@ -1063,7 +1067,7 @@ class TS_Tell():
                                                 scale=df["y_mi"].std()/curve_damper, 
                                                 size=len(df))
             df["smoothed_ts_random_var"] = df["smoothed_ts"] + df["random_var"]            
-            ### NOTE: strongly consider making this the average of 100/1000/+ runs
+            ### NOTE: consider making this the average of 100/1000/+ runs
 
             # impute using the smoothed time series with some random variation
             df["y_imp"] = df['y'].fillna(df["smoothed_ts_random_var"])
@@ -1102,10 +1106,6 @@ class TS_Tell():
             ((df["pct_diff"] < df["pct_diff"].quantile(1 - 
                 pct_diff_outlier_thresh)) | (df["pct_diff"] > df[
                         "pct_diff"].quantile(pct_diff_outlier_thresh))), 1, 0)
-
-        # @TODO TEST
-        if reverse_cast:
-            df = df[::-1]
 
         # graphing
         if print_graphs:
@@ -1187,7 +1187,7 @@ class TS_Tell():
         """
         x = ts.index.values
         y = ts.values
-        if ts.name==None:
+        if ts.name is None:
             ts.name='y'
             
         xn = range(x.min(), x.max() + 1)
