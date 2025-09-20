@@ -202,6 +202,24 @@ class TS_Tell():
                     "updated.\n".format(self.ts_name))
 
 
+    def get_input_name(self) -> float:
+        """Get the Input Time Series Name
+
+        """
+        return self.ts_name
+
+
+    def set_input_name(self, updated_name):
+        """Set the Input Time Series Name
+        
+        Set `self.input_ts` to the updated Time Series, `updated_ts`
+        
+        """
+        self.ts_name = updated_name
+        print("The name for the input time series has been updated " \
+                    "to `{}`.\n".format(self.ts_name))
+
+
     def get_data_freq(self, ts: pd.Series=None) -> str:
         """Get the frequency of the input time series
         
