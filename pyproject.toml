@@ -28,6 +28,19 @@ dependencies = [
 
 [tool.hatch.build.targets.wheel]
 include = ["TS_Tell.py"]
+
+[tool.uv.workspace]
+members = [
+    ".",
+]
+
+[tool.uv.sources]
+ts-tell = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "ts-tell",
+]
 # Configure setuptools to find your single-module package
 #[tool.uv_build.packages.find]
 #where = ["."]
