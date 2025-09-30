@@ -33,6 +33,7 @@ from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.stattools import kpss
 import statsmodels.api as sm
+import statsmodels.formula.api as smf
 
 # time series
 from sktime.utils.plotting import plot_series
@@ -67,7 +68,8 @@ class TS_Tell():
                  input_ts: pd.Series, 
                  season_length: int,
                  forecast_length: int=None,
-                 exog: Union[pd.Series, pd.DataFrame]=None
+                 exog: Union[pd.Series, pd.DataFrame]=None,
+                 exog_name: str=None
                 ):
         """Default constructor of the TS_Tell class
 
@@ -85,6 +87,8 @@ class TS_Tell():
             analysis or decision support are needed
         exog : Union[pd.Series, pd.DataFrame] default None
             Optional exogeneous regressor(s) to explain / better predict
+        exog_name : str default None
+            An optional name for the Exogenous time series
 
         Notes
         -----
@@ -106,6 +110,7 @@ class TS_Tell():
         self.season_length = season_length
         self.forecast_length = forecast_length
         self.exog = exog
+        self.exog_name = exog_name
 
         # additional objects
         self.n_obs = len(self.input_ts)
@@ -209,7 +214,7 @@ class TS_Tell():
         return self.ts_name
 
 
-    def set_input_name(self, updated_name):
+    def set_input_name(self, updated_name) -> None:
         """Set the Input Time Series Name
         
         Set `self.input_ts` to the updated Time Series, `updated_ts`
@@ -236,18 +241,31 @@ class TS_Tell():
         """
         return self.exog
 
-    
-    def set_exog_ts(self, exog_ts):
-        """Set Exogenous ime Series
+
+    def set_exog_ts(self, exog_ts: float, exog_name: str=None) -> None:
+        """Set Exogenous Time Series
         
         Set `self.exog` to the updated Exogenous Time Series, `exog_ts`
 
         """
         self.exog = exog_ts
-        print("The input Exogenous time series for `{}` has been " \
-                    "updated.\n".format(self.ts_name))
+        self.exog_name = exog_name
+        print("The input Exogenous time series has been updated " \
+              "\n".format(self.ts_name))
 
     
+    def dest_exog_ts(self) -> float:
+        """Destruct Exogenous Time Series
+        
+        Destructor for the Exogenous Time Series
+
+        """
+        self.exog = None
+        self.exog_name = None
+        print("The input Exogenous time series for `{}` has been " \
+                    "removed.\n".format(self.ts_name))
+
+        
     def get_season_length(self) -> int:
         """Get the Season length
         
@@ -593,21 +611,43 @@ class TS_Tell():
     def get_missing_imputation(self, 
                                ts: float=None,
                                miss_imp_val: float=None,
+                               use_reg: bool=False,
+                               apply_ln: bool=True,
+                               ref_year: int=2020,
+                               ref_mon: int=9,
                                print_graph: bool=False) -> pd.DataFrame:
         """Get time series missing imputation
 
-        Use this method to impute a value when missing
+        Use this method to impute a missing value - utilizes either poly-
+        nomial interpolation, OLS regression, or a passed value to fill in 
+        missing data points.
 
         Parameters
         ----------
-        ts : float
+        ts : float default None
             The time series to impute. As a convenience, set to None to send
             any time time series but defaults to `self.input_ts` otherwise
         miss_imp_val : float default None
             The value to assign missing, if necessary, for the rare case of
             needing a very specific value represent all missings
+            
+        use_reg : bool default False
+            Whether or not to use regression to predict and impute values
+            and specified as:
+                `LN(y) = B0 + B1*Year + B2*Month + B3(Year*Month) + e`
+        apply_ln : bool default True
+            Whether or not to apply LN transform or model as-is
+        ref_year : int default 2020
+            The reference year to use in the regression model
+        ref_mon : int default 9
+            The reference month to use in the regression model
         print_graph : bool default False
             Whether or not to print out the graph 
+
+        Raises
+        ------
+        ValueError
+            `miss_imp_val` and `use_reg` cannot both be True
 
         Returns
         -------
@@ -615,17 +655,21 @@ class TS_Tell():
             The input time series imputed to fill in missing values
         missing : bool
             Whether or not the `y` value was missing
-        y_mi : float
-            The imputed 
+        y_mi : float            The predicted value for that rowy_mi
 
-        Notes
-        -----
-        Utilizes polynomial interpolation to fill in missing data points. Since
-        Since time series data are temporal (i.e., adjacent values are more 
-        alike than non-adjacent values), a typical random imputation will miss 
-        this nuance.
-
+            The imputed
+        <CONDITIONAL use_reg == True>
+        month : int
+            The month of the row
+        year : int
+            The year of the row, inferred from the index
+        pred : float
+            The predicted value for that row
+            
         """
+        if miss_imp_val and use_reg:
+            raise ValueError("`miss_imp_val` and `use_reg` cannot both be " \
+                                 "True")
         if ts is None:
             ts = self.input_ts
         df = pd.DataFrame(ts)
@@ -633,8 +677,24 @@ class TS_Tell():
         df["missing"] = np.where(df['y'].isnull()==True, 1, 0)
         
         if miss_imp_val is None:
-            df['y_mi'] = df['y'].interpolate(limit_direction="both")
+            if use_reg:
+                # OLS Regression                
+                df["month"] = df.index.month.astype(int)
+                df["year"] = df.index.year.astype(int)
+                reg_formula = """C(year, Treatment(""" + str(ref_year) + \
+                    """)) + C(month, Treatment(""" + str(ref_mon) + """))"""+ \
+                    """+ C(year, Treatment(""" + str(ref_year) + """)):month"""
+                target = np.where(apply_ln is True, "np.log(y)", 'y').item()
+                model_fit = smf.ols(target + " ~ " + reg_formula, df).fit()
+                df["pred"] = model_fit.predict(df[["year", "month"]])
+                if apply_ln:
+                    df["pred"] = np.exp(df["pred"])
+                df['y_mi'] = df['y'].fillna(df["pred"])
+            else:
+                # Interpolation                
+                df['y_mi'] = df['y'].interpolate(limit_direction="both")
         else:
+            # Specific value
             df['y_mi'] = df['y'].fillna(miss_imp_val)
 
         if print_graph:
@@ -642,13 +702,19 @@ class TS_Tell():
             ax = df['y'].plot(alpha=0.75, marker='o')
             ax = df.query("missing==1")['y_mi'].plot(ax=ax, marker='o', ls='', 
                                                      label="Imputed Value")
+            xmin, xmax = ax.get_xlim()
+            xmin = xmin - 1
+            xmax = xmax + 1
+            ax.set_xlim(xmin, xmax)
             plt.legend()
             plt.show()
             
         return df
 
 
-    def get_lagdiff_imputation(self, ts: pd.Series=None) -> pd.Series:
+    def get_lagdiff_imputation(self, 
+                               ts: pd.Series=None,
+                               treatment: str="Lag") -> pd.Series:
         """Get Lag/Diff Imputation
     
         Impute the 1st observation that results from taking a Lag or a Diff
@@ -656,21 +722,49 @@ class TS_Tell():
         Parameters
         ----------
         ts : pd.Series default None
-            The input time series to perform imputation upon - defaulted to None
-            to pass any series but, as a convenience, None defaults to `self.input_ts`
+            The input time series to perform imputation upon, defaulted to None
+            to pass any series but as a convenience defaults to `self.input_ts`
+        treatment : str {"Lag", "Diff", "Lag Diff"} default "Lag"
+            The type of treatment to apply to the input series
+
+        Returns
+        -------
+        The input time series with the appropriate treatment applied, then im-
+        puted
             
         """
-
+        
         if ts is None:
             ts = self.input_ts
+            
         trend_df = self.get_trend_dataframe(ts=ts, time_feats=True)
-        # filter down to only years with both Q1 AND Q2 observations
-        filtered_df = trend_df.query("half_yr.eq(1)").groupby(["year", 
-                                    "half_yr"]).filter(lambda x: len(x) == 2)
-        # obtain the ratio of Q1 / Q2 to yield a better imputation estimate        
-        pct_of = filtered_df.query("quarter.eq(1)").sum()['y'] / + \
-                    filtered_df.query("quarter.eq(2)").sum()['y']
-        trend_df['y'] = trend_df['y'].fillna(trend_df['y'].shift(-1) * pct_of)
+
+        if treatment in ["Lag", "Diff"]:
+            # filter down to only years with both Q1 AND Q2 observations
+            filtered_df = trend_df.query("half_yr.eq(1)").groupby(["year", 
+                                        "half_yr"]).filter(lambda x: len(x) == 2)
+            # obtain the ratio of Q1 / Q2 to yield a better imputation estimate        
+            pct_of = filtered_df.query("quarter.eq(1)").sum()['y'] / + \
+                        filtered_df.query("quarter.eq(2)").sum()['y']
+            if treatment == "Lag":
+                trend_df['y'] = trend_df['y'].fillna(trend_df['y'].shift() * pct_of)
+            else:
+                trend_df['y'] = trend_df['y'].fillna(trend_df['y'].diff() * pct_of)
+        else:
+            # filter down to only years with both Q1 AND Q2 observations            
+            filtered_df = trend_df.query("half_yr.eq(1)").groupby(["year", 
+                                        "half_yr"]).filter(lambda x: len(x) == 2)
+            # obtain the ratio of Q1 / Q3 to yield a better imputation estimate        
+            pct_1_3 = filtered_df.query("quarter.eq(1)").sum()['y'] / + \
+                        filtered_df.query("quarter.eq(3)").sum()['y']
+            # obtain the ratio of Q2 / Q3 to yield a better imputation estimate        
+            pct_2_3 = filtered_df.query("quarter.eq(2)").sum()['y'] / + \
+                        filtered_df.query("quarter.eq(3)").sum()['y']
+
+            trend_df['y'] = trend_df['y'].shift().diff()
+            trend_df.iloc[:1, :1] = trend_df.iloc[2:3, :1] * pct_1_3
+            trend_df.iloc[1:2, :1] = trend_df.iloc[2:3, :1] * pct_2_3
+            
         return trend_df['y']
         
     
@@ -1003,7 +1097,6 @@ class TS_Tell():
                 - 'WE'
                 - 'SG'
         ValueError
-
             Raised if the value passed to `pct_diff_outlier_thresh` is not 
             (0, 1)
 
@@ -2083,7 +2176,7 @@ class TS_Tell():
         if return_dfs:
             if sliding_expanding == "both":
                 return (results_sliding, results_expand)            
-            elif sliding_expanding == "slide":
+            elif sliding_expanding == "sliding":
                 return results_sliding
             elif sliding_expanding == "expanding":
                 return results_expand
