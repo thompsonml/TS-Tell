@@ -253,18 +253,136 @@ class TS_Tell():
         print("The input Exogenous time series has been updated " \
               "\n".format(self.ts_name))
 
-    
-    def dest_exog_ts(self) -> float:
-        """Destruct Exogenous Time Series
-        
-        Destructor for the Exogenous Time Series
 
+    def get_exog_corr(self,
+                      ts: pd.Series,
+                      exog: pd.DataFrame,
+                      auto_update: bool=True,
+                      return_results: bool=True,
+                      ) -> Optional[tuple]:
         """
-        self.exog = None
-        self.exog_name = None
-        print("The input Exogenous time series for `{}` has been " \
-                    "removed.\n".format(self.ts_name))
-
+        Get Exogenous Correlation
+    
+        Get the exogenous series with the highest correlation with the input time
+        series. Applies LN transforms to both Input and Exog and then Lag, Diff, 
+        and Lag Diff to each Exogenous covariate to find the specification with 
+        the highest correlation.
+    
+        NOTE: LN + Diff-related function are not modeled due to negative values 
+        resulting in -inf values for LNs.
+    
+        Parameters
+        ----------        
+        ts : pd.Series
+            The input (or Target) time series
+        exog : pd.DataFrame
+            The exogeneous time series covariates
+        auto_update : bool default True
+            Whether or not to update the class objects for both Input and Exog
+        return_results: bool default True
+            Whether or not to return results
+    
+        Returns
+        -------
+        A tuple of a dataframe of correlation results and performance
+        results_df : pd.DataFrame
+                The correlation results between the input and exogenous time series
+        results_tuple : tuple 
+                A tuple of values in the order of:
+                (target_ln, ex_name, exog_ln, exog_treat)
+                    - Whether the input was LN ("LN") or as-is ('-')
+                    - The name of the highest correlated exogenous covariate
+                    - Whether the exogenous was LN ("LN") or as-is ('-')
+                    - Type of exogenous treatment ("Lag", "Diff", "Lag Diff", '-')
+    
+        """
+        exog_cols = exog.columns
+        results_df = pd.DataFrame(columns=exog_cols)
+        
+        for col in exog_cols:
+            corr_tuple = [
+                ("-|-|-", ts, exog[col]),
+                ("LN|-|-", np.log(ts), exog[col]),
+                ("-|LN|-", ts, np.log(exog[col])),
+                ("LN|LN|-", np.log(ts), np.log(exog[col])),
+                
+                ("-|-|Lag", ts, self.get_missing_imputation(exog[col].shift(), 
+                                                            use_reg=True)['y_mi']),
+                ("LN|-|Lag", np.log(ts), self.get_missing_imputation(
+                                        exog[col].shift(), use_reg=True)['y_mi']),
+                ("-|LN|Lag", ts, np.log(self.get_missing_imputation(
+                                        exog[col].shift(), use_reg=True)['y_mi'])),
+                ("LN|LN|Lag", np.log(ts), np.log(self.get_missing_imputation(
+                                        exog[col].shift(), use_reg=True)['y_mi'])),
+    
+                ("-|-|Diff", ts, self.get_missing_imputation(exog[col].diff(), 
+                                            use_reg=True, apply_ln=False)['y_mi']),
+                ("LN|-|Diff", np.log(ts), self.get_missing_imputation(
+                          exog[col].diff(), use_reg=True, apply_ln=False)['y_mi']),
+                
+                ("-|-|Lag Diff", ts, self.get_missing_imputation(
+                  exog[col].shift().diff(), use_reg=True, apply_ln=False)['y_mi']),
+                ("LN|-|Lag Diff", np.log(ts), self.get_missing_imputation(
+                  exog[col].shift().diff(), use_reg=True, apply_ln=False)['y_mi']),
+            ]
+    
+            for key, targ, ex in corr_tuple:
+                rho = pd.concat([targ, ex], axis=1).corr().iloc[:1,1:].reset_index(
+                            drop=True).values.item()
+                results_df.at[key, col] = rho
+        
+        results_df["row_max"] = results_df.abs().max(axis=1)
+        results_df["max_col"] = results_df.abs().idxmax(axis=1)
+        results_df = results_df.sort_values("row_max", ascending=False)
+        
+        ex_name = results_df["max_col"][:1].item()
+    
+        target_ln, exog_ln, exog_treat = results_df.sort_values("row_max", 
+                                    ascending=False)[:1].index.item().split('|')
+    
+        if auto_update:
+            if target_ln == "LN":
+                self.set_input_ts(np.log(ts))
+        
+            if exog_ln == "LN":
+                self.set_exog_ts(np.log(exog[ex_name]), "LN_" + ex_name) 
+            
+            if exog_treat == '-':
+                pass
+            elif exog_treat == "Lag":
+                exog = self.get_exog_ts()
+                exog = np.where(exog_ln=="LN",
+                        np.log(self.get_missing_imputation(
+                            exog[col].shift(), use_reg=True)['y_mi']),
+                                self.get_missing_imputation(
+                                    exog[col].shift(), use_reg=True)['y_mi'])
+                exog = pd.Series(exog, index=ts.index, name=ex_name)
+                self.set_exog_ts(exog)
+            elif exog_treat == "Diff":
+                exog = self.get_exog_ts()
+                exog = np.where(exog_ln=="LN",                                      
+                        np.log(self.get_missing_imputation(exog[col].diff(), 
+                                                        use_reg=True)['y_mi']),
+                                self.get_missing_imputation(exog[col].diff(), 
+                                                        use_reg=True)['y_mi'])
+                exog = pd.Series(exog, index=ts.index, name=ex_name)
+                self.set_exog_ts(exog)
+            elif exog_treat == "Lag Diff":
+                exog = self.get_exog_ts()
+                exog = np.where(exog_ln=="LN",
+                       np.log(self.get_missing_imputation(
+                           exog[col].shift().diff(), use_reg=True)['y_mi']),
+                            self.get_missing_imputation(
+                                exog[col].shift().diff(), use_reg=True)['y_mi'])
+                exog = pd.Series(exog, index=ts.index, name=ex_name)
+                self.set_exog_ts(exog)
+            else:
+                pass
+    
+        if return_results:
+            results_tuple = (target_ln, ex_name, exog_ln, exog_treat)
+            return results_df, results_tuple
+        
         
     def get_season_length(self) -> int:
         """Get the Season length
@@ -655,9 +773,8 @@ class TS_Tell():
             The input time series imputed to fill in missing values
         missing : bool
             Whether or not the `y` value was missing
-        y_mi : float            The predicted value for that rowy_mi
-
-            The imputed
+        y_mi : float            
+            The series with predicted values for rows with missings
         <CONDITIONAL use_reg == True>
         month : int
             The month of the row
