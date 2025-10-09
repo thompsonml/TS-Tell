@@ -125,15 +125,14 @@ class TS_Tell():
                  self.input_ts.index = pd.to_datetime(self.input_ts.index)
                  self.data_freq = pd.infer_freq(self.input_ts.index)
             except:
-                raise ValueError("The index of the pd.Series should be a "
-                    "DatetimeIndex. The conversion of the Index on the "
-                    "input time series using `pd.to_datetime()` was "
-                    "attempted but failed.")
-
-
-    @staticmethod
-    def test_static_method(x: float, y: float):
-        return x + y
+                try:
+                    self.input_ts.index = self.input_ts.index.to_timestamp()
+                    self.data_freq = pd.infer_freq(self.input_ts.index)
+                except:
+                    raise ValueError("The index of the pd.Series should be a "
+                        "DatetimeIndex. The conversion of the Index on the "
+                        "input time series using `pd.to_datetime()` was "
+                        "attempted but failed.")
                 
 
     # PRIVATE methods
@@ -158,6 +157,7 @@ class TS_Tell():
                           'M': 1600 * 3**4, 
                           'W': 1600 * 12**4,
                           'D': 1600 * (365/4)**4,
+                          'Y': 1600/4**4,
                          }
         hp_lambda = hp_lambda_dict[d_f]
         return hp_lambda
@@ -1570,7 +1570,7 @@ class TS_Tell():
         df["trend"].plot(ax=ax, ls='--', lw=2)
         plt.title("Trend: Hodrick-Prescott Filter ($\lambda$=)" \
                 "{:,d}, TS Frequency='{}')").format(#self._get_hp_lambda(), 
-                                                   hp_lamba,
+                                                   str(hp_lamba),
                                                    #self.get_data_freq()),
                                                    data_freq,
                                                    fontsize=11)
