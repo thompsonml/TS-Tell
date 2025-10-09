@@ -408,14 +408,12 @@ class TS_Tell():
                                               start_p=0, 
                                               start_q=0, 
                                               max_order=None, 
-                                              n_jobs=-1, 
                                               suppress_warnings=True),
          "SFAutoARIMA": StatsForecastAutoARIMA(sp=self.season_length, 
                                                start_p=0, 
                                                start_q=0, 
-                                               max_order=None, 
-                                               n_jobs=-1),
-         "AutoETS": AutoETS(sp=self.season_length, auto=True, n_jobs=-1),
+                                               max_order=None),
+         "AutoETS": AutoETS(sp=self.season_length, auto=True),
          "SFAutoCES": StatsForecastAutoCES(season_length=self.season_length, 
                                            model='Z'),
          "SFAutoTheta": StatsForecastAutoTheta(season_length=
@@ -1560,7 +1558,7 @@ class TS_Tell():
         """
         df = self.get_trend_dataframe()
         data_freq = self.get_data_freq()
-        hp_lamba = self._get_hp_lamba()
+        hp_lamba = self._get_hp_lambda()
         cycle, trend = sm.tsa.filters.hpfilter(self.input_ts, 
                                                #self._get_hp_lambda()
                                                hp_lamba
