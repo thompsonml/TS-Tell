@@ -2086,7 +2086,7 @@ class TS_Tell():
                              season_len: int=None,
                              win_len: int=None,
                              step_len: int=1,
-                             fh: int=range(4),
+                             fh: int=range(1, 5),
                              sliding_expanding: str="sliding",
                              scoring_metric: str="sMAPE",
                              expo: bool=False,
