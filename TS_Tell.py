@@ -284,16 +284,16 @@ class TS_Tell():
     
         Returns
         -------
-        A tuple of a dataframe of correlation results and performance
         results_df : pd.DataFrame
-                The correlation results between the input and exogenous time series
+            The correlation results between the input and each exog time series
         results_tuple : tuple 
                 A tuple of values in the order of:
                 (target_ln, ex_name, exog_ln, exog_treat)
-                    - Whether the input was LN ("LN") or as-is ('-')
+                    - Whether the input was LN ("True") or as-is ("False")
                     - The name of the highest correlated exogenous covariate
-                    - Whether the exogenous was LN ("LN") or as-is ('-')
-                    - Type of exogenous treatment ("Lag", "Diff", "Lag Diff", '-')
+                    - Whether the exogenous was LN ("True") or as-is ("False")
+                    - Type of exogenous treatment ("Lag", "Diff", "Lag Diff", 
+                        "False")
     
         """
         exog_cols = exog.columns
@@ -404,11 +404,12 @@ class TS_Tell():
 
     
     def get_models_dict(self):
-        model_dict =  {"AutoARIMA": AutoARIMA(sp=self.season_length, 
-                                              start_p=0, 
-                                              start_q=0, 
-                                              max_order=None, 
-                                              suppress_warnings=True),
+        model_dict =  {
+         #"AutoARIMA": AutoARIMA(sp=self.season_length, 
+         #                                     start_p=0, 
+         #                                     start_q=0, 
+         #                                     max_order=None, 
+         #                                     suppress_warnings=True),
          "SFAutoARIMA": StatsForecastAutoARIMA(sp=self.season_length, 
                                                start_p=0, 
                                                start_q=0, 
@@ -1496,6 +1497,7 @@ class TS_Tell():
             print("\t*** There were NO statistically significant " \
                     "Lags detected. ***")
         else:
+            pd.options.display.float_format = '{:.5f}'.format
             return lag_series
     
 
@@ -2264,7 +2266,7 @@ class TS_Tell():
                          marker='o', label="Sliding")
                 plt.axhline(y=results_sliding[scoring_metric].mean()*100, 
                             ls='--', c='tab:blue')
-                plt.title("Average {}:\nSliding: {:0.1f}%  Expanding: {:0.1f}%".format(
+                plt.title("Average {}:\nSliding: {:0.1f}%".format(
                                 scoring_metric,
                                 results_sliding[scoring_metric].mean()*100, 
                                 )
@@ -2275,7 +2277,7 @@ class TS_Tell():
                          marker='o', label="Expanding")
                 plt.axhline(y=results_expanding[scoring_metric].mean()*100, 
                             ls='--', c='tab:orange')
-                plt.title("Average {}:\nSliding: {:0.1f}%  Expanding: {:0.1f}%".format(
+                plt.title("Average {}:\nSliding: {:0.1f}%".format(
                                 scoring_metric,
                                 results_expanding[scoring_metric].mean()*100
                                 )
